@@ -2,6 +2,9 @@
 name = "jwm"
 version = "0.1.0"
 authors = ["Mikhail Pogretskiy <mikhail.pogretskiy@gmail.com>"]
+edition = "2018"
 
 [dependencies]
+env_logger = "*"
+log = "*"
 x11rb = "0.6.0"
