@@ -2,15 +2,23 @@ use log::*;
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
 use x11rb::protocol::xproto::*;
-use x11rb::protocol::{Error, Event};
-use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
+use x11rb::protocol::Error;
+use x11rb::COPY_DEPTH_FROM_PARENT;
 
 use std::collections::{HashMap, HashSet};
+
+mod handler;
 
 use crate::bindings::*;
 use crate::client::*;
 
 pub type Handler = Box<dyn Fn()>;
+
+pub enum WmMode {
+    Default,
+    ClientMove { x: i16, y: i16, client_id: Window },
+    //ClientResize,
+}
 
 pub struct WindowManager<'c, C: Connection> {
     pub conn: &'c C,
@@ -19,8 +27,10 @@ pub struct WindowManager<'c, C: Connection> {
     pub clients: Vec<Client>,
     pub pending_expose: HashSet<Window>,
     pub wm_protocols: Atom,
+    pub wm_take_focus: Atom,
     pub wm_delete_window: Atom,
     key_handlers: HashMap<Key, Vec<Handler>>,
+    mode: WmMode,
 }
 
 impl<'c, C: Connection> WindowManager<'c, C> {
@@ -31,9 +41,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         let change = ChangeWindowAttributesAux::default().event_mask(
             EventMask::SubstructureRedirect
                 | EventMask::SubstructureNotify
-                | EventMask::EnterWindow
-                | EventMask::KeyPress
-                | EventMask::ButtonPress,
+                | EventMask::EnterWindow,
         );
 
         let res = conn.change_window_attributes(screen.root, &change)?.check();
@@ -46,7 +54,10 @@ impl<'c, C: Connection> WindowManager<'c, C> {
                 conn.grab_button(
                     true,
                     screen.root,
-                    (EventMask::Button3Motion | EventMask::Button1Motion) as u16,
+                    (EventMask::ButtonRelease
+                        | EventMask::ButtonPress
+                        | EventMask::Button3Motion
+                        | EventMask::Button1Motion) as u16,
                     GrabMode::Async,
                     GrabMode::Async,
                     screen.root,
@@ -71,6 +82,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         conn.close_font(font)?;
 
         let wm_protocols = conn.intern_atom(false, b"WM_PROTOCOLS")?;
+        let wm_take_focus = conn.intern_atom(false, b"WM_TAKE_FOCUS")?;
         let wm_delete_window = conn.intern_atom(false, b"WM_DELETE_WINDOW")?;
 
         Ok(WindowManager {
@@ -80,8 +92,10 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             clients: Vec::default(),
             pending_expose: HashSet::default(),
             wm_protocols: wm_protocols.reply()?.atom,
+            wm_take_focus: wm_take_focus.reply()?.atom,
             wm_delete_window: wm_delete_window.reply()?.atom,
             key_handlers: HashMap::new(),
+            mode: WmMode::Default,
         })
     }
 
@@ -152,7 +166,11 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         let frame_win = self.conn.generate_id()?;
         let win_aux = CreateWindowAux::new()
             .event_mask(
-                EventMask::Exposure | EventMask::SubstructureNotify | EventMask::ButtonRelease,
+                EventMask::ButtonRelease
+                    | EventMask::EnterWindow
+                    | EventMask::PropertyChange
+                    | EventMask::Exposure
+                    | EventMask::SubstructureNotify,
             )
             .background_pixel(screen.black_pixel);
         // TODO: Change titlebar height calculation
@@ -163,7 +181,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             screen.root,
             geom.x,
             geom.y,
-            geom.width - 300,
+            geom.width,
             geom.height + titlebar_h,
             1,
             WindowClass::InputOutput,
@@ -183,11 +201,11 @@ impl<'c, C: Connection> WindowManager<'c, C> {
     pub fn refresh(&mut self) -> Result<(), ReplyError> {
         while let Some(&win) = self.pending_expose.iter().next() {
             self.pending_expose.remove(&win);
-            if let Some(state) = self.find_window_by_id(win) {
-                if let Err(err) = self.redraw_titlebar(state) {
+            if let Some(client) = self.find_window_by_id(win) {
+                if let Err(err) = self.redraw_titlebar(client) {
                     warn!(
                         "Error while redrawing window {:x?}: {:?}",
-                        state.window, err
+                        client.window, err
                     );
                 }
             }
@@ -195,28 +213,28 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         Ok(())
     }
 
-    pub fn redraw_titlebar(&self, state: &Client) -> Result<(), ReplyError> {
-        let close_x = state.close_x_position();
+    pub fn redraw_titlebar(&self, client: &Client) -> Result<(), ReplyError> {
+        let close_x = client.close_x_position();
         self.conn.poly_line(
             CoordMode::Origin,
-            state.frame_window,
+            client.frame_window,
             self.black_gc,
             &[
                 Point { x: close_x, y: 0 },
                 Point {
-                    x: state.width as _,
+                    x: client.width as _,
                     y: 15,
                 },
             ],
         )?;
         self.conn.poly_line(
             CoordMode::Origin,
-            state.frame_window,
+            client.frame_window,
             self.black_gc,
             &[
                 Point { x: close_x, y: 15 },
                 Point {
-                    x: state.width as _,
+                    x: client.width as _,
                     y: 0,
                 },
             ],
@@ -225,7 +243,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             .conn
             .get_property(
                 false,
-                state.window,
+                client.window,
                 AtomEnum::WM_NAME,
                 AtomEnum::STRING,
                 0,
@@ -233,134 +251,19 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             )?
             .reply()?;
         self.conn
-            .image_text8(state.frame_window, self.black_gc, 1, 10, &reply.value)?;
+            .image_text8(client.frame_window, self.black_gc, 1, 10, &reply.value)?;
         Ok(())
     }
 
     pub fn find_window_by_id(&self, win: Window) -> Option<&Client> {
         self.clients
             .iter()
-            .find(|state| state.window == win || state.frame_window == win)
+            .find(|client| client.window == win || client.frame_window == win)
     }
 
-    #[allow(unused)]
     pub fn find_window_by_id_mut(&mut self, win: Window) -> Option<&mut Client> {
         self.clients
             .iter_mut()
-            .find(|state| state.window == win || state.frame_window == win)
-    }
-
-    pub fn handle_event(&mut self, event: Event) -> Result<(), ReplyOrIdError> {
-        debug!("Got event {:?}", event);
-        match event {
-            Event::UnmapNotify(event) => self.handle_unmap_notify(event)?,
-            Event::ConfigureRequest(event) => self.handle_configure_request(event)?,
-            Event::MapRequest(event) => self.handle_map_request(event)?,
-            Event::Expose(event) => self.handle_expose(event)?,
-            Event::EnterNotify(event) => self.handle_enter(event)?,
-            Event::MotionNotify(event) => self.handle_motion_notify(event)?,
-            Event::ButtonRelease(event) => self.handle_button_release(event)?,
-            Event::KeyPress(event) => self.handle_key_press(event)?,
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn handle_unmap_notify(&mut self, event: UnmapNotifyEvent) -> Result<(), ReplyError> {
-        let conn = self.conn;
-        self.clients.retain(|state| {
-            if state.window != event.window {
-                true
-            } else {
-                conn.destroy_window(state.frame_window).unwrap();
-                false
-            }
-        });
-        Ok(())
-    }
-
-    fn handle_configure_request(&mut self, event: ConfigureRequestEvent) -> Result<(), ReplyError> {
-        if let Some(state) = self.find_window_by_id(event.window) {
-            let _ = state;
-            unimplemented!()
-        }
-        let mut aux = ConfigureWindowAux::default();
-        if event.value_mask & u16::from(ConfigWindow::X) != 0 {
-            aux = aux.x(i32::from(event.x))
-        }
-        if event.value_mask & u16::from(ConfigWindow::Y) != 0 {
-            aux = aux.y(i32::from(event.y))
-        }
-        if event.value_mask & u16::from(ConfigWindow::Width) != 0 {
-            aux = aux.width(u32::from(event.width))
-        }
-        if event.value_mask & u16::from(ConfigWindow::Height) != 0 {
-            aux = aux.height(u32::from(event.height))
-        }
-        debug!("Configure: {:?}", aux);
-        self.conn.configure_window(event.window, &aux)?;
-        Ok(())
-    }
-
-    fn handle_map_request(&mut self, event: MapRequestEvent) -> Result<(), ReplyError> {
-        self.manage_window(
-            event.window,
-            &self.conn.get_geometry(event.window)?.reply()?,
-        )
-        .unwrap();
-        Ok(())
-    }
-
-    fn handle_expose(&mut self, event: ExposeEvent) -> Result<(), ReplyError> {
-        self.pending_expose.insert(event.window);
-        Ok(())
-    }
-
-    fn handle_enter(&mut self, event: EnterNotifyEvent) -> Result<(), ReplyError> {
-        let window = if let Some(state) = self.find_window_by_id(event.child) {
-            state.window
-        } else {
-            event.event
-        };
-        self.conn
-            .set_input_focus(InputFocus::Parent, window, CURRENT_TIME)?;
-        Ok(())
-    }
-
-    fn handle_button_release(&mut self, event: ButtonReleaseEvent) -> Result<(), ReplyError> {
-        if let Some(state) = self.find_window_by_id(event.event) {
-            let data = [self.wm_delete_window, 0, 0, 0, 0];
-            let event = ClientMessageEvent {
-                response_type: CLIENT_MESSAGE_EVENT,
-                format: 32,
-                sequence: 0,
-                window: state.window,
-                type_: self.wm_protocols,
-                data: data.into(),
-            };
-            self.conn
-                .send_event(false, state.window, EventMask::NoEvent, &event)?;
-        }
-        Ok(())
-    }
-
-    fn handle_motion_notify(&mut self, event: MotionNotifyEvent) -> Result<(), ReplyError> {
-        let aux = ConfigureWindowAux::default()
-            .x(i32::from(event.root_x - 20))
-            .y(i32::from(event.root_y - 20));
-
-        debug!("Configure: {:?}", aux);
-        self.conn.configure_window(event.child, &aux)?;
-
-        Ok(())
-    }
-
-    fn handle_key_press(&mut self, event: KeyPressEvent) -> Result<(), ReplyError> {
-        if let Some(handlers) = self.key_handlers.get(&(event.state, event.detail).into()) {
-            for handler in handlers {
-                handler()
-            }
-        }
-        Ok(())
+            .find(|client| client.window == win || client.frame_window == win)
     }
 }
