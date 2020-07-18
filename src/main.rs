@@ -1,5 +1,6 @@
 mod bindings;
 mod client;
+mod layout;
 mod wm;
 
 use crate::bindings::*;

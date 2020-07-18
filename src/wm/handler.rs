@@ -105,7 +105,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         };
         // TODO: Remove unwrap
         self.conn
-            .send_event(false, window, EventMask::NoEvent, &event)?.check().unwrap();
+            .send_event(false, window, EventMask::NoEvent, &event)?.check();
 
         self.conn
             .set_input_focus(InputFocus::Parent, window, CURRENT_TIME)?;

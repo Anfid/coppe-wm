@@ -11,6 +11,10 @@ mod handler;
 
 use crate::bindings::*;
 use crate::client::*;
+use crate::layout::*;
+
+// TODO: Change titlebar height calculation
+const TITLEBAR_SIZE: u16 = 15;
 
 pub type Handler = Box<dyn Fn()>;
 
@@ -25,6 +29,7 @@ pub struct WindowManager<'c, C: Connection> {
     pub screen_num: usize,
     pub black_gc: Gcontext,
     pub clients: Vec<Client>,
+    pub layout: Box<dyn Layout>,
     pub pending_expose: HashSet<Window>,
     pub wm_protocols: Atom,
     pub wm_take_focus: Atom,
@@ -90,6 +95,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             screen_num,
             black_gc,
             clients: Vec::default(),
+            layout: Box::new(Fullscreen),
             pending_expose: HashSet::default(),
             wm_protocols: wm_protocols.reply()?.atom,
             wm_take_focus: wm_take_focus.reply()?.atom,
@@ -163,6 +169,8 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         let screen = &self.conn.setup().roots[self.screen_num];
         assert!(self.find_window_by_id(win).is_none());
 
+        let geom_reply = self.layout.geometry(screen.into(), geom.into());
+
         let frame_win = self.conn.generate_id()?;
         let win_aux = CreateWindowAux::new()
             .event_mask(
@@ -173,24 +181,28 @@ impl<'c, C: Connection> WindowManager<'c, C> {
                     | EventMask::SubstructureNotify,
             )
             .background_pixel(screen.black_pixel);
-        // TODO: Change titlebar height calculation
-        let titlebar_h = 15;
         self.conn.create_window(
             COPY_DEPTH_FROM_PARENT,
             frame_win,
             screen.root,
-            geom.x,
-            geom.y,
-            geom.width,
-            geom.height + titlebar_h,
+            geom_reply.x,
+            geom_reply.y,
+            geom_reply.width,
+            geom_reply.height + TITLEBAR_SIZE,
             1,
             WindowClass::InputOutput,
             0,
             &win_aux,
         )?;
+        let aux = ConfigureWindowAux::default()
+            .x(i32::from(geom_reply.x))
+            .y(i32::from(geom_reply.y + TITLEBAR_SIZE as i16))
+            .width(u32::from(geom_reply.width))
+            .height(u32::from(geom_reply.height - TITLEBAR_SIZE));
 
         self.conn
-            .reparent_window(win, frame_win, 0, titlebar_h as _)?;
+            .reparent_window(win, frame_win, 0, TITLEBAR_SIZE as _)?;
+        self.conn.configure_window(win, &aux)?;
         self.conn.map_window(win)?;
         self.conn.map_window(frame_win)?;
 
@@ -223,7 +235,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
                 Point { x: close_x, y: 0 },
                 Point {
                     x: client.width as _,
-                    y: 15,
+                    y: TITLEBAR_SIZE as i16,
                 },
             ],
         )?;
@@ -232,7 +244,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             client.frame_window,
             self.black_gc,
             &[
-                Point { x: close_x, y: 15 },
+                Point { x: close_x, y: TITLEBAR_SIZE as i16 },
                 Point {
                     x: client.width as _,
                     y: 0,
