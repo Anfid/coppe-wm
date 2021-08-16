@@ -7,4 +7,4 @@ edition = "2018"
 [dependencies]
 env_logger = "*"
 log = "*"
-x11rb = "0.6.0"
+x11rb = "0.8.1"

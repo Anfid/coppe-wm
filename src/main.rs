@@ -8,30 +8,41 @@ use crate::wm::{Handler, WindowManager};
 
 use x11rb::protocol::xproto::ModMask;
 
-const SYS_MOD: u16 = ModMask::M4 as u16;
+const SYS_MOD: ModMask = ModMask::M4;
 
 fn keys() -> Vec<(Key, Handler)> {
-    vec![(
-        Key {
-            modmask: SYS_MOD,
-            keycode: 53u8,
-        },
-        Box::new(|| {
-            std::process::Command::new("rofi")
-                .args(&[
-                    "-modi",
-                    "drun,run",
-                    "-show",
-                    "run",
-                    "-location",
-                    "0",
-                    "-xoffset",
-                    "0",
-                ])
-                .spawn()
-                .unwrap();
-        }),
-    )]
+    vec![
+        (
+            Key {
+                modmask: SYS_MOD,
+                keycode: 53,
+            },
+            Box::new(|| {
+                std::process::Command::new("rofi")
+                    .args(&[
+                        "-modi",
+                        "drun,run",
+                        "-show",
+                        "run",
+                        "-location",
+                        "0",
+                        "-xoffset",
+                        "0",
+                    ])
+                    .spawn()
+                    .unwrap();
+            }),
+        ),
+        (
+            Key {
+                modmask: SYS_MOD,
+                keycode: 36,
+            },
+            Box::new(|| {
+                std::process::Command::new("kitty").spawn().unwrap();
+            }),
+        ),
+    ]
 }
 
 fn main() {

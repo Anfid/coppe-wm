@@ -51,6 +51,11 @@ pub struct Floating;
 
 impl Layout for Floating {
     fn geometry(&self, screen_geo: Geometry, client_geo: Geometry) -> Geometry {
-        client_geo
+        Geometry {
+            x: 0,
+            y: 0,
+            width: 600,
+            height: 400,
+        }
     }
 }

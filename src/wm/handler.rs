@@ -50,10 +50,10 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         if event.value_mask & u16::from(ConfigWindow::Y) != 0 {
             aux = aux.y(i32::from(event.y))
         }
-        if event.value_mask & u16::from(ConfigWindow::Width) != 0 {
+        if event.value_mask & u16::from(ConfigWindow::WIDTH) != 0 {
             aux = aux.width(u32::from(event.width))
         }
-        if event.value_mask & u16::from(ConfigWindow::Height) != 0 {
+        if event.value_mask & u16::from(ConfigWindow::HEIGHT) != 0 {
             aux = aux.height(u32::from(event.height))
         }
         debug!("Configure: {:?}", aux);
@@ -103,19 +103,27 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             type_: self.wm_protocols,
             data: data.into(),
         };
-        // TODO: Remove unwrap
-        self.conn
-            .send_event(false, window, EventMask::NoEvent, &event)?.check();
 
         self.conn
-            .set_input_focus(InputFocus::Parent, window, CURRENT_TIME)?;
+            .send_event(false, window, EventMask::NO_EVENT, &event)?
+            .check();
+
+        let aux = ConfigureWindowAux::default().stack_mode(StackMode::ABOVE);
+        self.conn.configure_window(window, &aux)?;
+
+        self.conn
+            .set_input_focus(InputFocus::PARENT, window, CURRENT_TIME)?;
         Ok(())
     }
 
     fn handle_button_press(&mut self, event: ButtonPressEvent) -> Result<(), ReplyError> {
-        if event.detail == ButtonIndex::M1 as u8 {
+        if event.detail == ButtonIndex::M1.into() {
             if let Some(client) = self.find_window_by_id(event.child) {
-                debug!("Entered ClientMove mode with {} {}", event.root_x - client.x, event.root_y - client.y);
+                debug!(
+                    "Entered ClientMove mode with {} {}",
+                    event.root_x - client.x,
+                    event.root_y - client.y
+                );
                 self.mode = super::WmMode::ClientMove {
                     x: event.root_x - client.x,
                     y: event.root_y - client.y,
@@ -129,14 +137,13 @@ impl<'c, C: Connection> WindowManager<'c, C> {
 
     fn handle_button_release(&mut self, event: ButtonReleaseEvent) -> Result<(), ReplyError> {
         if let super::WmMode::ClientMove { .. } = self.mode {
-            if event.detail == ButtonIndex::M1 as u8 {
+            if event.detail == ButtonIndex::M1.into() {
                 debug!("Entered Default mode");
                 self.mode = super::WmMode::Default;
             }
         }
 
         if let Some(client) = self.find_window_by_id(event.event) {
-            debug!("=-=-=- child: {}; client: {}", client.window, client.frame_window);
             let data = [self.wm_delete_window, 0, 0, 0, 0];
             let event = ClientMessageEvent {
                 response_type: CLIENT_MESSAGE_EVENT,
@@ -147,14 +154,14 @@ impl<'c, C: Connection> WindowManager<'c, C> {
                 data: data.into(),
             };
             self.conn
-                .send_event(false, client.window, EventMask::NoEvent, &event)?;
+                .send_event(false, client.window, EventMask::NO_EVENT, &event)?;
         }
         Ok(())
     }
 
     fn handle_motion_notify(&mut self, event: MotionNotifyEvent) -> Result<(), ReplyError> {
         match self.mode {
-            super::WmMode::Default => {},
+            super::WmMode::Default => {}
             super::WmMode::ClientMove { x, y, client_id } => {
                 let aux = ConfigureWindowAux::default()
                     .x(i32::from(event.root_x - x))

@@ -2,8 +2,8 @@ use log::*;
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
 use x11rb::protocol::xproto::*;
-use x11rb::protocol::Error;
-use x11rb::COPY_DEPTH_FROM_PARENT;
+use x11rb::x11_utils::X11Error;
+use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
 
 use std::collections::{HashMap, HashSet};
 
@@ -24,11 +24,17 @@ pub enum WmMode {
     //ClientResize,
 }
 
+pub enum FocusDirection {
+    Next,
+    Prev,
+}
+
 pub struct WindowManager<'c, C: Connection> {
     pub conn: &'c C,
     pub screen_num: usize,
     pub black_gc: Gcontext,
     pub clients: Vec<Client>,
+    pub focused: usize,
     pub layout: Box<dyn Layout>,
     pub pending_expose: HashSet<Window>,
     pub wm_protocols: Atom,
@@ -44,27 +50,33 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         let screen = &conn.setup().roots[screen_num];
         // Try to become the window manager. This causes an error if there is already another WM.
         let change = ChangeWindowAttributesAux::default().event_mask(
-            EventMask::SubstructureRedirect
-                | EventMask::SubstructureNotify
-                | EventMask::EnterWindow,
+            EventMask::SUBSTRUCTURE_REDIRECT
+                | EventMask::SUBSTRUCTURE_NOTIFY
+                | EventMask::ENTER_WINDOW,
         );
 
         let res = conn.change_window_attributes(screen.root, &change)?.check();
         match res {
-            Err(ReplyError::X11Error(Error::Access(_))) => {
+            Err(ReplyError::X11Error(X11Error {
+                error_kind: x11rb::protocol::ErrorKind::Access,
+                ..
+            })) => {
                 error!("Another WM is already running");
-                std::process::exit(1);
+                std::process::exit(1)
             }
+            Err(e) => return Err(e.into()),
             _ => {
                 conn.grab_button(
                     true,
                     screen.root,
-                    (EventMask::ButtonRelease
-                        | EventMask::ButtonPress
-                        | EventMask::Button3Motion
-                        | EventMask::Button1Motion) as u16,
-                    GrabMode::Async,
-                    GrabMode::Async,
+                    u32::from(
+                        EventMask::BUTTON_RELEASE
+                            | EventMask::BUTTON_PRESS
+                            | EventMask::BUTTON3_MOTION
+                            | EventMask::BUTTON1_MOTION,
+                    ) as u16,
+                    GrabMode::ASYNC,
+                    GrabMode::ASYNC,
                     screen.root,
                     0u16,
                     ButtonIndex::M1,
@@ -95,7 +107,8 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             screen_num,
             black_gc,
             clients: Vec::default(),
-            layout: Box::new(Fullscreen),
+            focused: 0,
+            layout: Box::new(Floating),
             pending_expose: HashSet::default(),
             wm_protocols: wm_protocols.reply()?.atom,
             wm_take_focus: wm_take_focus.reply()?.atom,
@@ -127,8 +140,8 @@ impl<'c, C: Connection> WindowManager<'c, C> {
                 self.conn.setup().roots[self.screen_num].root,
                 key.modmask,
                 key.keycode,
-                GrabMode::Async,
-                GrabMode::Async,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
             )?;
             if let Some(handlers) = self.key_handlers.get_mut(&key) {
                 handlers.push(Box::new(handler));
@@ -136,6 +149,29 @@ impl<'c, C: Connection> WindowManager<'c, C> {
                 self.key_handlers.insert(key, vec![Box::new(handler)]);
             }
         }
+        Ok(())
+    }
+
+    pub fn focus_client(&mut self, direction: FocusDirection) -> Result<(), ReplyError> {
+        let idx: i32 = match direction {
+            FocusDirection::Next => self.focused as i32 + 1,
+            FocusDirection::Prev => self.focused as i32 - 1,
+        };
+        let win = if idx >= self.clients.len() as i32 {
+            self.clients[0].frame_window
+        } else if idx < 0 {
+            self.clients[self.clients.len() - 1].frame_window
+        } else {
+            self.clients[self.focused + 1].frame_window
+        };
+
+        let aux = ConfigureWindowAux::default().stack_mode(StackMode::ABOVE);
+
+        self.conn.configure_window(win, &aux)?;
+
+        self.conn
+            .set_input_focus(InputFocus::PARENT, win, CURRENT_TIME)?;
+
         Ok(())
     }
 
@@ -151,7 +187,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         }
         for (win, attr, geom) in cookies {
             if let (Ok(attr), Ok(geom)) = (attr.reply(), geom.reply()) {
-                if !attr.override_redirect && attr.map_state != MapState::Unmapped {
+                if !attr.override_redirect && attr.map_state != MapState::UNMAPPED {
                     self.manage_window(win, &geom)?;
                 }
             }
@@ -169,18 +205,20 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         let screen = &self.conn.setup().roots[self.screen_num];
         assert!(self.find_window_by_id(win).is_none());
 
-        let geom_reply = self.layout.geometry(screen.into(), geom.into());
+        let mut geometry: Geometry = geom.into();
+        geometry.height += TITLEBAR_SIZE;
+        let geom_reply = self.layout.geometry(screen.into(), geometry);
 
         let frame_win = self.conn.generate_id()?;
         let win_aux = CreateWindowAux::new()
             .event_mask(
-                EventMask::ButtonRelease
-                    | EventMask::EnterWindow
-                    | EventMask::PropertyChange
-                    | EventMask::Exposure
-                    | EventMask::SubstructureNotify,
+                EventMask::BUTTON_RELEASE
+                    | EventMask::ENTER_WINDOW
+                    | EventMask::PROPERTY_CHANGE
+                    | EventMask::EXPOSURE
+                    | EventMask::SUBSTRUCTURE_NOTIFY,
             )
-            .background_pixel(screen.black_pixel);
+            .background_pixel(screen.white_pixel);
         self.conn.create_window(
             COPY_DEPTH_FROM_PARENT,
             frame_win,
@@ -188,21 +226,21 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             geom_reply.x,
             geom_reply.y,
             geom_reply.width,
-            geom_reply.height + TITLEBAR_SIZE,
+            geom_reply.height,
             1,
-            WindowClass::InputOutput,
+            WindowClass::INPUT_OUTPUT,
             0,
             &win_aux,
         )?;
         let aux = ConfigureWindowAux::default()
             .x(i32::from(geom_reply.x))
-            .y(i32::from(geom_reply.y + TITLEBAR_SIZE as i16))
+            .y(i32::from(geom_reply.y))
             .width(u32::from(geom_reply.width))
             .height(u32::from(geom_reply.height - TITLEBAR_SIZE));
 
-        self.conn
-            .reparent_window(win, frame_win, 0, TITLEBAR_SIZE as _)?;
         self.conn.configure_window(win, &aux)?;
+        self.conn
+            .reparent_window(win, frame_win, 0, TITLEBAR_SIZE as i16)?;
         self.conn.map_window(win)?;
         self.conn.map_window(frame_win)?;
 
@@ -228,7 +266,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
     pub fn redraw_titlebar(&self, client: &Client) -> Result<(), ReplyError> {
         let close_x = client.close_x_position();
         self.conn.poly_line(
-            CoordMode::Origin,
+            CoordMode::ORIGIN,
             client.frame_window,
             self.black_gc,
             &[
@@ -240,11 +278,14 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             ],
         )?;
         self.conn.poly_line(
-            CoordMode::Origin,
+            CoordMode::ORIGIN,
             client.frame_window,
             self.black_gc,
             &[
-                Point { x: close_x, y: TITLEBAR_SIZE as i16 },
+                Point {
+                    x: close_x,
+                    y: TITLEBAR_SIZE as i16,
+                },
                 Point {
                     x: client.width as _,
                     y: 0,
