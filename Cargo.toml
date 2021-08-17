@@ -1,10 +1,11 @@
 [package]
-name = "jwm"
-version = "0.1.0"
+name = "waswm"
+version = "0.0.1"
 authors = ["Mikhail Pogretskiy <mikhail.pogretskiy@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-env_logger = "*"
-log = "*"
+log = "0.4"
+env_logger = "0.9"
+wasmer = "2.0"
 x11rb = "0.8.1"

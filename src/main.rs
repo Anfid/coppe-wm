@@ -1,9 +1,11 @@
 mod bindings;
 mod client;
 mod layout;
+mod runner;
 mod wm;
 
 use crate::bindings::*;
+use crate::runner::Runner;
 use crate::wm::{Handler, WindowManager};
 
 use x11rb::protocol::xproto::ModMask;
@@ -56,6 +58,8 @@ fn main() {
         .arg("/home/anfid/Pictures/Wallpapers/Sth2.png")
         .spawn()
         .unwrap();
+
+    Runner::init().unwrap().run();
 
     wm.run().unwrap();
 }

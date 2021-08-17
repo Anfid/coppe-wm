@@ -3,15 +3,18 @@ description = "Installs jwm in /usr/local/bin."
 script = [
   "cargo build --release",
   "echo Installing in /usr/local/bin",
-	"sudo mkdir -p /usr/local/bin",
-	"sudo cp -f target/release/jwm /usr/local/bin",
-	"sudo chmod 755 /usr/local/bin/jwm"
+  "sudo mkdir -p /usr/local/bin",
+  "sudo cp -f target/release/jwm /usr/local/bin",
+  "sudo chmod 755 /usr/local/bin/jwm"
+
+  "sudo mkdir -p /usr/local/share/xsessions",
+  "sudo cp configuration/xsessions/jwm.desktop /usr/local/share/xsessions",
 ]
 
 [tasks.xephyr]
 description = "Tests the debug build inside xnest"
 script = [
-	"cargo build",
-	"Xephyr -name 'jwm' -br -ac -noreset -screen 1024x768 +xinerama :2 &",
-	"sleep 1 && RUST_LOG=debug DISPLAY=:2 exec target/debug/jwm"
+  "cargo build",
+  "Xephyr -name 'jwm' -br -ac -noreset -screen 1024x768 +xinerama :2 &",
+  "sleep 1 && RUST_LOG=debug DISPLAY=:2 exec target/debug/jwm"
 ]
