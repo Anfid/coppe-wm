@@ -1,3 +1,4 @@
+use crate::events::RunnerEvent;
 use log::*;
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
@@ -7,27 +8,48 @@ use x11rb::CURRENT_TIME;
 
 use super::WindowManager;
 
-impl<'c, C: Connection> WindowManager<'c, C> {
-    pub fn handle_event(&mut self, event: Event) -> Result<(), ReplyOrIdError> {
-        debug!("Got event {:?}", event);
+impl WindowManager {
+    pub fn handle_x_event<C>(&mut self, conn: &C, event: Event) -> Result<(), ReplyOrIdError>
+    where
+        C: Connection,
+    {
+        debug!("Got X11 event {:?}", event);
         match event {
-            Event::UnmapNotify(event) => self.handle_unmap_notify(event)?,
-            Event::ConfigureRequest(event) => self.handle_configure_request(event)?,
-            Event::ConfigureNotify(event) => self.handle_configure_notify(event)?,
-            Event::MapRequest(event) => self.handle_map_request(event)?,
+            Event::UnmapNotify(event) => self.handle_unmap_notify(conn, event)?,
+            Event::ConfigureRequest(event) => self.handle_configure_request(conn, event)?,
+            Event::ConfigureNotify(event) => self.handle_configure_notify(conn, event)?,
+            Event::MapRequest(event) => self.handle_map_request(conn, event)?,
             Event::Expose(event) => self.handle_expose(event)?,
-            Event::EnterNotify(event) => self.handle_enter(event)?,
-            Event::ButtonPress(event) => self.handle_button_press(event)?,
-            Event::ButtonRelease(event) => self.handle_button_release(event)?,
-            Event::MotionNotify(event) => self.handle_motion_notify(event)?,
+            Event::EnterNotify(event) => self.handle_enter(conn, event)?,
+            Event::ButtonPress(event) => self.handle_button_press(conn, event)?,
+            Event::ButtonRelease(event) => self.handle_button_release(conn, event)?,
+            Event::MotionNotify(event) => self.handle_motion_notify(conn, event)?,
             Event::KeyPress(event) => self.handle_key_press(event)?,
             _ => {}
         }
         Ok(())
     }
 
-    fn handle_unmap_notify(&mut self, event: UnmapNotifyEvent) -> Result<(), ReplyError> {
-        let conn = self.conn;
+    pub fn handle_runner_event<C>(&mut self, conn: &C, event: RunnerEvent)
+    where
+        C: Connection,
+    {
+        debug!("Got runner event {:?}", event);
+        match event {
+            RunnerEvent::MoveWindow { .. } => {}
+            _ => {}
+        }
+    }
+
+    fn handle_unmap_notify<C>(
+        &mut self,
+        conn: &C,
+        event: UnmapNotifyEvent,
+    ) -> Result<(), ReplyError>
+    where
+        C: Connection,
+    {
+        let conn = conn;
         self.clients.retain(|state| {
             if state.window != event.window {
                 true
@@ -39,8 +61,15 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         Ok(())
     }
 
-    fn handle_configure_request(&mut self, event: ConfigureRequestEvent) -> Result<(), ReplyError> {
-        if let Some(_client) = self.find_window_by_id(event.window) {
+    fn handle_configure_request<C>(
+        &mut self,
+        conn: &C,
+        event: ConfigureRequestEvent,
+    ) -> Result<(), ReplyError>
+    where
+        C: Connection,
+    {
+        if let Some(_client) = self.find_window_by_id(conn, event.window) {
             //
         }
         let mut aux = ConfigureWindowAux::default();
@@ -57,12 +86,19 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             aux = aux.height(u32::from(event.height))
         }
         debug!("Configure: {:?}", aux);
-        self.conn.configure_window(event.window, &aux)?;
+        conn.configure_window(event.window, &aux)?;
         Ok(())
     }
 
-    fn handle_configure_notify(&mut self, event: ConfigureNotifyEvent) -> Result<(), ReplyError> {
-        if let Some(client) = self.find_window_by_id_mut(event.window) {
+    fn handle_configure_notify<C>(
+        &mut self,
+        conn: &C,
+        event: ConfigureNotifyEvent,
+    ) -> Result<(), ReplyError>
+    where
+        C: Connection,
+    {
+        if let Some(client) = self.find_window_by_id_mut(conn, event.window) {
             client.x = event.x;
             client.y = event.y;
             client.width = event.width;
@@ -72,10 +108,14 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         Ok(())
     }
 
-    fn handle_map_request(&mut self, event: MapRequestEvent) -> Result<(), ReplyError> {
+    fn handle_map_request<C>(&mut self, conn: &C, event: MapRequestEvent) -> Result<(), ReplyError>
+    where
+        C: Connection,
+    {
         self.manage_window(
+            conn,
             event.window,
-            &self.conn.get_geometry(event.window)?.reply()?,
+            &conn.get_geometry(event.window)?.reply()?,
         )
         .unwrap();
         Ok(())
@@ -87,8 +127,11 @@ impl<'c, C: Connection> WindowManager<'c, C> {
     }
 
     // TODO: For some reason event seems to randomly return to WM
-    fn handle_enter(&mut self, event: EnterNotifyEvent) -> Result<(), ReplyError> {
-        let window = if let Some(client) = self.find_window_by_id(event.event) {
+    fn handle_enter<C>(&mut self, conn: &C, event: EnterNotifyEvent) -> Result<(), ReplyError>
+    where
+        C: Connection,
+    {
+        let window = if let Some(client) = self.find_window_by_id(conn, event.event) {
             client.window
         } else {
             event.event
@@ -104,21 +147,26 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             data: data.into(),
         };
 
-        self.conn
-            .send_event(false, window, EventMask::NO_EVENT, &event)?
+        conn.send_event(false, window, EventMask::NO_EVENT, &event)?
             .check();
 
         let aux = ConfigureWindowAux::default().stack_mode(StackMode::ABOVE);
-        self.conn.configure_window(window, &aux)?;
+        conn.configure_window(window, &aux)?;
 
-        self.conn
-            .set_input_focus(InputFocus::PARENT, window, CURRENT_TIME)?;
+        conn.set_input_focus(InputFocus::PARENT, window, CURRENT_TIME)?;
         Ok(())
     }
 
-    fn handle_button_press(&mut self, event: ButtonPressEvent) -> Result<(), ReplyError> {
+    fn handle_button_press<C>(
+        &mut self,
+        conn: &C,
+        event: ButtonPressEvent,
+    ) -> Result<(), ReplyError>
+    where
+        C: Connection,
+    {
         if event.detail == ButtonIndex::M1.into() {
-            if let Some(client) = self.find_window_by_id(event.child) {
+            if let Some(client) = self.find_window_by_id(conn, event.child) {
                 debug!(
                     "Entered ClientMove mode with {} {}",
                     event.root_x - client.x,
@@ -135,7 +183,14 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         Ok(())
     }
 
-    fn handle_button_release(&mut self, event: ButtonReleaseEvent) -> Result<(), ReplyError> {
+    fn handle_button_release<C>(
+        &mut self,
+        conn: &C,
+        event: ButtonReleaseEvent,
+    ) -> Result<(), ReplyError>
+    where
+        C: Connection,
+    {
         if let super::WmMode::ClientMove { .. } = self.mode {
             if event.detail == ButtonIndex::M1.into() {
                 debug!("Entered Default mode");
@@ -143,7 +198,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             }
         }
 
-        if let Some(client) = self.find_window_by_id(event.event) {
+        if let Some(client) = self.find_window_by_id(conn, event.event) {
             let data = [self.wm_delete_window, 0, 0, 0, 0];
             let event = ClientMessageEvent {
                 response_type: CLIENT_MESSAGE_EVENT,
@@ -153,13 +208,19 @@ impl<'c, C: Connection> WindowManager<'c, C> {
                 type_: self.wm_protocols,
                 data: data.into(),
             };
-            self.conn
-                .send_event(false, client.window, EventMask::NO_EVENT, &event)?;
+            conn.send_event(false, client.window, EventMask::NO_EVENT, &event)?;
         }
         Ok(())
     }
 
-    fn handle_motion_notify(&mut self, event: MotionNotifyEvent) -> Result<(), ReplyError> {
+    fn handle_motion_notify<C>(
+        &mut self,
+        conn: &C,
+        event: MotionNotifyEvent,
+    ) -> Result<(), ReplyError>
+    where
+        C: Connection,
+    {
         match self.mode {
             super::WmMode::Default => {}
             super::WmMode::ClientMove { x, y, client_id } => {
@@ -168,7 +229,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
                     .y(i32::from(event.root_y - y));
 
                 debug!("Configure: {:?}", aux);
-                self.conn.configure_window(client_id, &aux)?;
+                conn.configure_window(client_id, &aux)?;
             }
         }
         Ok(())
