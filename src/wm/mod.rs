@@ -1,17 +1,21 @@
 use log::*;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::mpsc::{Receiver, Sender},
+};
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
 use x11rb::protocol::xproto::*;
 use x11rb::x11_utils::X11Error;
 use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
 
-use std::collections::{HashMap, HashSet};
-
 mod handler;
 
-use crate::bindings::*;
-use crate::client::*;
-use crate::layout::*;
+use crate::bindings::{Button, Key};
+use crate::client::Client;
+use crate::events::{RunnerEvent, WMEvent};
+use crate::layout::Geometry;
+use crate::state::State;
 
 // TODO: Change titlebar height calculation
 const TITLEBAR_SIZE: u16 = 15;
@@ -24,29 +28,31 @@ pub enum WmMode {
     //ClientResize,
 }
 
-pub enum FocusDirection {
-    Next,
-    Prev,
-}
-
 pub struct WindowManager<'c, C: Connection> {
     pub conn: &'c C,
+    pub state: State,
     pub screen_num: usize,
     pub black_gc: Gcontext,
     pub clients: Vec<Client>,
-    pub focused: usize,
-    pub layout: Box<dyn Layout>,
     pub pending_expose: HashSet<Window>,
     pub wm_protocols: Atom,
     pub wm_take_focus: Atom,
     pub wm_delete_window: Atom,
     key_handlers: HashMap<Key, Vec<Handler>>,
     mode: WmMode,
+    tx: Sender<WMEvent>,
+    rx: Receiver<RunnerEvent>,
 }
 
 impl<'c, C: Connection> WindowManager<'c, C> {
     // TODO: Restructure
-    pub fn init(conn: &'c C, screen_num: usize) -> Result<Self, ReplyOrIdError> {
+    pub fn init(
+        conn: &'c C,
+        screen_num: usize,
+        state: State,
+        tx: Sender<WMEvent>,
+        rx: Receiver<RunnerEvent>,
+    ) -> Result<Self, ReplyOrIdError> {
         let screen = &conn.setup().roots[screen_num];
         // Try to become the window manager. This causes an error if there is already another WM.
         let change = ChangeWindowAttributesAux::default().event_mask(
@@ -85,7 +91,6 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             }
         }
 
-        let screen = &conn.setup().roots[screen_num];
         let black_gc = conn.generate_id()?;
         let font = conn.generate_id()?;
         // TODO: Make configurable
@@ -104,17 +109,18 @@ impl<'c, C: Connection> WindowManager<'c, C> {
 
         Ok(WindowManager {
             conn,
+            state,
             screen_num,
             black_gc,
             clients: Vec::default(),
-            focused: 0,
-            layout: Box::new(Floating),
             pending_expose: HashSet::default(),
             wm_protocols: wm_protocols.reply()?.atom,
             wm_take_focus: wm_take_focus.reply()?.atom,
             wm_delete_window: wm_delete_window.reply()?.atom,
             key_handlers: HashMap::new(),
             mode: WmMode::Default,
+            rx,
+            tx,
         })
     }
 
@@ -129,6 +135,11 @@ impl<'c, C: Connection> WindowManager<'c, C> {
             while let Some(event) = event_opt {
                 self.handle_event(event).unwrap();
                 event_opt = self.conn.poll_for_event().unwrap();
+
+                match self.rx.try_recv() {
+                    Ok(event) => info!("Handling RunnerEvent: {:?}", event),
+                    _ => {}
+                }
             }
         }
     }
@@ -152,17 +163,19 @@ impl<'c, C: Connection> WindowManager<'c, C> {
         Ok(())
     }
 
-    pub fn focus_client(&mut self, direction: FocusDirection) -> Result<(), ReplyError> {
-        let idx: i32 = match direction {
-            FocusDirection::Next => self.focused as i32 + 1,
-            FocusDirection::Prev => self.focused as i32 - 1,
-        };
+    pub fn focus_client(&mut self, rel_idx: i32) -> Result<(), ReplyError> {
+        // TODO: Implement wrapping add and sub based on amount of clients
+        let idx = self.state.get().focused as i32 + rel_idx;
+        //let idx: i32 = match direction {
+        //    FocusDirection::Next => self.focused as i32 + 1,
+        //    FocusDirection::Prev => self.focused as i32 - 1,
+        //};
         let win = if idx >= self.clients.len() as i32 {
             self.clients[0].frame_window
         } else if idx < 0 {
             self.clients[self.clients.len() - 1].frame_window
         } else {
-            self.clients[self.focused + 1].frame_window
+            self.clients[self.state.get().focused + 1].frame_window
         };
 
         let aux = ConfigureWindowAux::default().stack_mode(StackMode::ABOVE);
@@ -207,7 +220,7 @@ impl<'c, C: Connection> WindowManager<'c, C> {
 
         let mut geometry: Geometry = geom.into();
         geometry.height += TITLEBAR_SIZE;
-        let geom_reply = self.layout.geometry(screen.into(), geometry);
+        let geom_reply = self.state.get().layout.geometry(screen.into(), geometry);
 
         let frame_win = self.conn.generate_id()?;
         let win_aux = CreateWindowAux::new()

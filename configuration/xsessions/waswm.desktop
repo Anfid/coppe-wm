@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=waswm
+Comment=Window manager configurable with WASM plugins
+TryExec=waswm
+Exec=waswm
+Type=Application

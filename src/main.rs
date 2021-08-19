@@ -1,11 +1,14 @@
 mod bindings;
 mod client;
+mod events;
 mod layout;
 mod runner;
+mod state;
 mod wm;
 
 use crate::bindings::*;
 use crate::runner::Runner;
+use crate::state::State;
 use crate::wm::{Handler, WindowManager};
 
 use x11rb::protocol::xproto::ModMask;
@@ -49,8 +52,15 @@ fn keys() -> Vec<(Key, Handler)> {
 
 fn main() {
     env_logger::init();
+
+    let state = State::default();
+    let (wm_tx, wm_rx) = std::sync::mpsc::channel();
+    let (mut runner, runner_rx) = Runner::init(state.clone(), wm_rx);
+
+    std::thread::spawn(move || runner.run());
+
     let (conn, screen_num) = x11rb::connect(None).unwrap();
-    let mut wm = WindowManager::init(&conn, screen_num).unwrap();
+    let mut wm = WindowManager::init(&conn, screen_num, state, wm_tx, runner_rx).unwrap();
     wm.bind_keys(keys()).unwrap();
 
     std::process::Command::new("feh")
@@ -58,8 +68,6 @@ fn main() {
         .arg("/home/anfid/Pictures/Wallpapers/Sth2.png")
         .spawn()
         .unwrap();
-
-    Runner::init().unwrap().run();
 
     wm.run().unwrap();
 }

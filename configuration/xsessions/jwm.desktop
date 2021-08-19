@@ -1,6 +1,0 @@
-[Desktop Entry]
-Name=jwm
-Comment=Just a window manager
-TryExec=jwm
-Exec=jwm
-Type=Application

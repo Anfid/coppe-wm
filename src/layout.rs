@@ -35,7 +35,7 @@ impl From<&GetGeometryReply> for Geometry {
     }
 }
 
-pub trait Layout {
+pub trait Layout: Send {
     fn geometry(&self, screen_geo: Geometry, client_geo: Geometry) -> Geometry;
 }
 
