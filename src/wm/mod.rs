@@ -1,10 +1,7 @@
 use log::*;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{
-        mpsc::{self, Receiver, Sender},
-        Arc,
-    },
+    sync::{mpsc::Sender, Arc},
 };
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
@@ -16,9 +13,10 @@ mod handler;
 
 use crate::bindings::{Button, Key};
 use crate::client::Client;
-use crate::events::{RunnerEvent, WMEvent};
+use crate::events::WMEvent;
 use crate::layout::Geometry;
 use crate::state::State;
+use crate::X11Conn;
 
 // TODO: Change titlebar height calculation
 const TITLEBAR_SIZE: u16 = 15;
@@ -43,27 +41,16 @@ pub struct WindowManager {
     key_handlers: HashMap<Key, Vec<Handler>>,
     mode: WmMode,
     tx: Sender<WMEvent>,
-    rx: Receiver<Event>,
-}
-
-#[derive(Debug)]
-enum Event {
-    X(x11rb::protocol::Event),
-    Runner(RunnerEvent),
 }
 
 impl WindowManager {
     // TODO: Restructure
-    pub fn init<C>(
-        conn: Arc<C>,
+    pub fn init(
+        conn: Arc<X11Conn>,
         screen_num: usize,
         state: State,
         tx: Sender<WMEvent>,
-        rx: Receiver<RunnerEvent>,
-    ) -> Result<Self, ReplyOrIdError>
-    where
-        C: 'static + Connection + Send + Sync,
-    {
+    ) -> Result<Self, ReplyOrIdError> {
         let screen = &conn.setup().roots[screen_num];
         // Try to become the window manager. This causes an error if there is already another WM.
         let change = ChangeWindowAttributesAux::default().event_mask(
@@ -102,23 +89,6 @@ impl WindowManager {
             }
         }
 
-        let (event_tx, event_rx) = mpsc::channel();
-        let x_event_conn = conn.clone();
-        let x_tx = event_tx.clone();
-        std::thread::spawn(move || loop {
-            let mut event_opt = x_event_conn.wait_for_event().ok();
-            while let Some(event) = event_opt {
-                x_tx.send(Event::X(event)).unwrap();
-                event_opt = x_event_conn.poll_for_event().unwrap();
-            }
-        });
-        std::thread::spawn(move || loop {
-            match rx.recv() {
-                Ok(event) => event_tx.send(Event::Runner(event)).unwrap(),
-                _ => break,
-            };
-        });
-
         let black_gc = conn.generate_id()?;
         let font = conn.generate_id()?;
         // TODO: Make configurable
@@ -146,12 +116,11 @@ impl WindowManager {
             wm_delete_window: wm_delete_window.reply()?.atom,
             key_handlers: HashMap::new(),
             mode: WmMode::Default,
-            rx: event_rx,
             tx,
         })
     }
 
-    pub fn run<C: Connection>(&mut self, conn: &C) -> Result<(), ReplyError> {
+    pub fn run(&mut self, conn: &X11Conn) -> Result<(), ReplyError> {
         self.scan_windows(conn).unwrap();
 
         loop {
@@ -159,20 +128,17 @@ impl WindowManager {
             conn.flush().unwrap();
 
             // Handle as many events as possible before refresh, then wait again
-            let mut event_opt = self.rx.recv().ok();
+            let mut event_opt = conn.wait_for_event().ok();
             while let Some(event) = event_opt {
-                match event {
-                    Event::X(e) => self.handle_x_event(conn, e).unwrap(),
-                    Event::Runner(e) => self.handle_runner_event(conn, e),
-                }
-                event_opt = self.rx.try_recv().ok();
+                self.handle_event(conn, event).unwrap();
+                event_opt = conn.poll_for_event().unwrap();
             }
         }
     }
 
-    pub fn bind_keys<C: Connection>(
+    pub fn bind_keys(
         &mut self,
-        conn: &C,
+        conn: &X11Conn,
         keys: Vec<(Key, impl Fn() + 'static)>,
     ) -> Result<(), ReplyError> {
         for (key, handler) in keys {
@@ -193,10 +159,7 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn focus_client<C>(&mut self, conn: &C, rel_idx: i32) -> Result<(), ReplyError>
-    where
-        C: Connection,
-    {
+    pub fn focus_client(&mut self, conn: &X11Conn, rel_idx: i32) -> Result<(), ReplyError> {
         // TODO: Implement wrapping add and sub based on amount of clients
         let idx = self.state.get().focused as i32 + rel_idx;
         //let idx: i32 = match direction {
@@ -220,7 +183,7 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn scan_windows<C: Connection>(&mut self, conn: &C) -> Result<(), ReplyOrIdError> {
+    pub fn scan_windows(&mut self, conn: &X11Conn) -> Result<(), ReplyOrIdError> {
         let screen = &conn.setup().roots[self.screen_num];
         let tree_reply = conn.query_tree(screen.root)?.reply()?;
 
@@ -241,15 +204,12 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn manage_window<C>(
+    pub fn manage_window(
         &mut self,
-        conn: &C,
+        conn: &X11Conn,
         win: Window,
         geom: &GetGeometryReply,
-    ) -> Result<(), ReplyOrIdError>
-    where
-        C: Connection,
-    {
+    ) -> Result<(), ReplyOrIdError> {
         info!("Managing window {:?}", win);
         let screen = &conn.setup().roots[self.screen_num];
         assert!(self.find_window_by_id(win).is_none());
@@ -296,7 +256,7 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn refresh<C: Connection>(&mut self, conn: &C) -> Result<(), ReplyError> {
+    pub fn refresh(&mut self, conn: &X11Conn) -> Result<(), ReplyError> {
         while let Some(&win) = self.pending_expose.iter().next() {
             self.pending_expose.remove(&win);
             if let Some(client) = self.find_window_by_id(win) {
@@ -311,10 +271,7 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn redraw_titlebar<C>(&self, conn: &C, client: &Client) -> Result<(), ReplyError>
-    where
-        C: Connection,
-    {
+    pub fn redraw_titlebar(&self, conn: &X11Conn, client: &Client) -> Result<(), ReplyError> {
         let close_x = client.close_x_position();
         conn.poly_line(
             CoordMode::ORIGIN,

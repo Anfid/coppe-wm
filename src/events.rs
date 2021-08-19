@@ -1,10 +1,26 @@
-#[derive(Debug)]
-pub enum WMEvent {
-    KeyPressed(crate::bindings::Key),
-    KeyReleased(crate::bindings::Key),
-}
+use crate::bindings::Key;
+use x11rb::protocol::Event;
 
 #[derive(Debug)]
-pub enum RunnerEvent {
-    MoveWindow { id: u32, x: i32, y: i32 },
+pub enum WMEvent {
+    KeyPressed(Key),
+    KeyReleased(Key),
+}
+
+impl WMEvent {
+    pub fn try_from(x_event: &Event) -> Option<Self> {
+        match x_event {
+            Event::KeyPress(event) => Self::KeyPressed(Key {
+                modmask: event.state.into(),
+                keycode: event.detail,
+            })
+            .into(),
+            Event::KeyRelease(event) => Self::KeyPressed(Key {
+                modmask: event.state.into(),
+                keycode: event.detail,
+            })
+            .into(),
+            _ => None,
+        }
+    }
 }
