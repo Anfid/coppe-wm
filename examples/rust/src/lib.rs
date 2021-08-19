@@ -7,7 +7,10 @@ extern "C" {
 }
 
 #[no_mangle]
-fn handle() {
+pub static id: [u8; 10] = *b"rust_demo\0";
+
+#[no_mangle]
+pub extern "C" fn handle() {
     let command = "kitty";
 
     unsafe { spawn(command.as_ptr(), command.len()) }

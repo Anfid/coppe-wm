@@ -7,7 +7,10 @@ extern "C" {
 }
 
 #[no_mangle]
-fn handle() {
+pub static id: [u8; 13] = *b"rust_minimal\0";
+
+#[no_mangle]
+pub fn handle() {
     unsafe { move_window(1, 200, 300) };
 }
 

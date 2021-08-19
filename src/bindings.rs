@@ -1,7 +1,7 @@
 use x11rb::protocol::xproto::ButtonIndex;
 use x11rb::protocol::xproto::ModMask;
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Key {
     pub modmask: ModMask,
     pub keycode: u8,

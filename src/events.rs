@@ -1,6 +1,7 @@
 #[derive(Debug)]
 pub enum WMEvent {
-    TODO,
+    KeyPressed(crate::bindings::Key),
+    KeyReleased(crate::bindings::Key),
 }
 
 #[derive(Debug)]

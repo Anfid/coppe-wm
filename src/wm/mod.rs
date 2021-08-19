@@ -252,7 +252,7 @@ impl WindowManager {
     {
         info!("Managing window {:?}", win);
         let screen = &conn.setup().roots[self.screen_num];
-        assert!(self.find_window_by_id(conn, win).is_none());
+        assert!(self.find_window_by_id(win).is_none());
 
         let mut geometry: Geometry = geom.into();
         geometry.height += TITLEBAR_SIZE;
@@ -299,7 +299,7 @@ impl WindowManager {
     pub fn refresh<C: Connection>(&mut self, conn: &C) -> Result<(), ReplyError> {
         while let Some(&win) = self.pending_expose.iter().next() {
             self.pending_expose.remove(&win);
-            if let Some(client) = self.find_window_by_id(conn, win) {
+            if let Some(client) = self.find_window_by_id(win) {
                 if let Err(err) = self.redraw_titlebar(conn, client) {
                     warn!(
                         "Error while redrawing window {:x?}: {:?}",
@@ -357,16 +357,13 @@ impl WindowManager {
         Ok(())
     }
 
-    pub fn find_window_by_id<C: Connection>(&self, conn: &C, win: Window) -> Option<&Client> {
+    pub fn find_window_by_id(&self, win: Window) -> Option<&Client> {
         self.clients
             .iter()
             .find(|client| client.window == win || client.frame_window == win)
     }
 
-    pub fn find_window_by_id_mut<C>(&mut self, conn: &C, win: Window) -> Option<&mut Client>
-    where
-        C: Connection,
-    {
+    pub fn find_window_by_id_mut(&mut self, win: Window) -> Option<&mut Client> {
         self.clients
             .iter_mut()
             .find(|client| client.window == win || client.frame_window == win)

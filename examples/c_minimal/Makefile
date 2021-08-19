@@ -5,3 +5,10 @@ build:
 	-Wl,--allow-undefined-file=wasm-import.syms \
 	-o plugin.wasm plugin.c
 
+.PHONY: release
+release:
+	@clang -O2 --target=wasm32 --no-standard-libraries \
+	-Wl,--export-all -Wl,--no-entry \
+	-Wl,--allow-undefined-file=wasm-import.syms \
+	-o plugin.wasm plugin.c
+
