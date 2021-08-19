@@ -16,5 +16,5 @@ description = "Tests the debug build inside xnest"
 script = [
   "cargo build",
   "Xephyr -name 'waswm' -br -ac -noreset -screen 1024x768 +xinerama :2 &",
-  "sleep 1 && RUST_LOG=debug DISPLAY=:2 exec target/debug/waswm"
+  "sleep 1 && RUST_LOG=${RUST_LOG:-waswm} DISPLAY=:2 exec target/debug/waswm"
 ]
