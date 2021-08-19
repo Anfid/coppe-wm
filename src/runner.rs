@@ -6,7 +6,10 @@ use std::{
     sync::{mpsc, Mutex},
     thread_local,
 };
-use wasmer::{imports, Function, ImportObject, Instance, Module, NativeFunc, Store};
+use wasmer::{
+    imports, Array, Function, ImportObject, Instance, LazyInit, Memory, Module, NativeFunc, Store,
+    WasmPtr, WasmerEnv,
+};
 
 use crate::events::{RunnerEvent, WMEvent};
 use crate::state::State;
@@ -98,10 +101,15 @@ impl Runner {
 }
 
 fn import_objects(store: &Store, state: State) -> ImportObject {
-    let move_window = Function::new_native(store, move_window);
+    let environment = Environment {
+        wm_state: state,
+        memory: Default::default(),
+    };
+
     imports! {
         "env" => {
-            "move_window" => move_window,
+            "move_window" => Function::new_native(store, move_window),
+            "spawn" => Function::new_native_with_env(store, environment, spawn),
         }
     }
 }
@@ -114,7 +122,25 @@ fn send_event(event: RunnerEvent) {
     S.with(|sender| sender.send(event));
 }
 
-fn move_window(id: i32, x: i32, y: i32) {
-    info!("Move window {} to [{}, {}]", id, x, y);
+#[derive(WasmerEnv, Clone)]
+struct Environment {
+    wm_state: State,
+    #[wasmer(export)]
+    memory: LazyInit<Memory>,
+}
+
+fn move_window(id: u32, x: i32, y: i32) {
     send_event(RunnerEvent::MoveWindow { id, x, y });
+}
+
+fn spawn(env: &Environment, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) {
+    env.memory_ref()
+        .and_then(|memory| cmd_ptr.get_utf8_string(memory, cmd_len))
+        .and_then(|cmd_string| shlex::split(&cmd_string))
+        .filter(|cmd_args| cmd_args.len() > 0)
+        .map(|cmd_args| {
+            std::process::Command::new(&cmd_args[0])
+                .args(&cmd_args[1..])
+                .spawn()
+        });
 }

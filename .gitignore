@@ -1,2 +1,8 @@
 /target
-/examples/*/*.wasm
+
+# Compiled examples
+/examples/**/*.wasm
+
+# Cargo cache from examples
+/examples/**/target
+/examples/**/Cargo.lock

@@ -5,5 +5,5 @@ pub enum WMEvent {
 
 #[derive(Debug)]
 pub enum RunnerEvent {
-    MoveWindow { id: i32, x: i32, y: i32 },
+    MoveWindow { id: u32, x: i32, y: i32 },
 }

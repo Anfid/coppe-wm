@@ -36,7 +36,12 @@ impl WindowManager {
     {
         debug!("Got runner event {:?}", event);
         match event {
-            RunnerEvent::MoveWindow { .. } => {}
+            RunnerEvent::MoveWindow { id, x, y } => {
+                let aux = ConfigureWindowAux::default().x(x).y(y);
+
+                debug!("Configure: {:?}", aux);
+                let _ = conn.configure_window(id, &aux);
+            }
             _ => {}
         }
     }
