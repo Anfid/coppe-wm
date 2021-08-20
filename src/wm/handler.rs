@@ -110,13 +110,13 @@ impl WindowManager {
             event.event
         };
 
-        let data = [self.wm_take_focus, CURRENT_TIME, 0, 0, 0];
+        let data = [self.atoms.WM_TAKE_FOCUS, CURRENT_TIME, 0, 0, 0];
         let event = ClientMessageEvent {
             response_type: CLIENT_MESSAGE_EVENT,
             format: 32,
             sequence: 0,
             window,
-            type_: self.wm_protocols,
+            type_: self.atoms.WM_PROTOCOLS,
             data: data.into(),
         };
 
@@ -162,13 +162,13 @@ impl WindowManager {
         }
 
         if let Some(client) = self.find_window_by_id(event.event) {
-            let data = [self.wm_delete_window, 0, 0, 0, 0];
+            let data = [self.atoms.WM_DELETE_WINDOW, 0, 0, 0, 0];
             let event = ClientMessageEvent {
                 response_type: CLIENT_MESSAGE_EVENT,
                 format: 32,
                 sequence: 0,
                 window: client.window,
-                type_: self.wm_protocols,
+                type_: self.atoms.WM_PROTOCOLS,
                 data: data.into(),
             };
             conn.send_event(false, client.window, EventMask::NO_EVENT, &event)?;

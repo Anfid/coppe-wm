@@ -3,6 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{mpsc::Sender, Arc},
 };
+use x11rb::atom_manager;
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
 use x11rb::protocol::xproto::*;
@@ -29,15 +30,21 @@ pub enum WmMode {
     //ClientResize,
 }
 
+atom_manager! {
+    pub Atoms: AtomsCookie {
+        WM_PROTOCOLS,
+        WM_TAKE_FOCUS,
+        WM_DELETE_WINDOW,
+    }
+}
+
 pub struct WindowManager {
     pub state: State,
     pub screen_num: usize,
     pub black_gc: Gcontext,
     pub clients: Vec<Client>,
     pub pending_expose: HashSet<Window>,
-    pub wm_protocols: Atom,
-    pub wm_take_focus: Atom,
-    pub wm_delete_window: Atom,
+    pub atoms: Atoms,
     key_handlers: HashMap<Key, Vec<Handler>>,
     mode: WmMode,
     tx: Sender<WMEvent>,
@@ -89,6 +96,8 @@ impl WindowManager {
             }
         }
 
+        let atoms = Atoms::new(conn.as_ref())?;
+
         let black_gc = conn.generate_id()?;
         let font = conn.generate_id()?;
         // TODO: Make configurable
@@ -101,19 +110,13 @@ impl WindowManager {
         conn.create_gc(black_gc, screen.root, &gc_aux)?;
         conn.close_font(font)?;
 
-        let wm_protocols = conn.intern_atom(false, b"WM_PROTOCOLS")?;
-        let wm_take_focus = conn.intern_atom(false, b"WM_TAKE_FOCUS")?;
-        let wm_delete_window = conn.intern_atom(false, b"WM_DELETE_WINDOW")?;
-
         Ok(WindowManager {
             state,
             screen_num,
             black_gc,
             clients: Vec::default(),
             pending_expose: HashSet::default(),
-            wm_protocols: wm_protocols.reply()?.atom,
-            wm_take_focus: wm_take_focus.reply()?.atom,
-            wm_delete_window: wm_delete_window.reply()?.atom,
+            atoms: atoms.reply()?,
             key_handlers: HashMap::new(),
             mode: WmMode::Default,
             tx,
