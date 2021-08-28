@@ -1,26 +1,26 @@
 use log::*;
 use std::collections::{HashMap, HashSet};
 
-use super::plug_mgr::PluginManager;
-use crate::events::WMEvent;
+use super::plug_mgr::PluginId;
+use crate::events::WmEvent;
 
 #[derive(Debug, Default)]
 pub struct SubscriptionManager {
-    subs: HashMap<EventSubscription, HashSet<String>>,
+    subs: HashMap<EventSubscription, HashSet<PluginId>>,
 }
 
 impl SubscriptionManager {
-    pub fn dispatch(&self, ev: WMEvent, plug_mgr: &PluginManager) {
-        let sub = EventSubscription::from(&ev);
-        if let Some(subscribers) = self.subs.get(&sub) {
-            for subscriber in subscribers {
-                info!("Handling event {:?} by {}", ev, subscriber);
-                plug_mgr.get(subscriber).map(|s| s.handle(&ev));
-            }
-        }
+    pub fn subscribers(&self, ev: &WmEvent) -> impl Iterator<Item = &PluginId> + Clone {
+        let sub = EventSubscription::from(ev);
+
+        self.subs
+            .get(&sub)
+            .map(|subs| subs.iter())
+            .into_iter()
+            .flatten()
     }
 
-    pub fn subscribe(&mut self, id: String, ev: EventSubscription) {
+    pub fn subscribe(&mut self, id: PluginId, ev: EventSubscription) {
         if let Some(subs) = self.subs.get_mut(&ev) {
             subs.insert(id);
         } else {
@@ -30,7 +30,7 @@ impl SubscriptionManager {
         }
     }
 
-    pub fn unsubscribe(&mut self, id: &String, ev: &EventSubscription) {
+    pub fn unsubscribe(&mut self, id: &PluginId, ev: &EventSubscription) {
         if let Some(subs) = self.subs.get_mut(ev) {
             subs.remove(id);
             if subs.is_empty() {
@@ -61,12 +61,12 @@ impl EventSubscription {
     }
 }
 
-impl From<&WMEvent> for EventSubscription {
-    fn from(ev: &WMEvent) -> Self {
+impl From<&WmEvent> for EventSubscription {
+    fn from(ev: &WmEvent) -> Self {
         use EventSubscription::*;
         match ev {
-            WMEvent::KeyPressed(_) => KeyPressed,
-            WMEvent::KeyReleased(_) => KeyReleased,
+            WmEvent::KeyPressed(_) => KeyPressed,
+            WmEvent::KeyReleased(_) => KeyReleased,
         }
     }
 }

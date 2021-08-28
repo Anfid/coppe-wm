@@ -5,13 +5,13 @@ use x11rb::protocol::Event;
 use x11rb::CURRENT_TIME;
 
 use super::WindowManager;
-use crate::events::WMEvent;
+use crate::events::WmEvent;
 use crate::X11Conn;
 
 impl WindowManager {
     pub fn handle_event(&mut self, conn: &X11Conn, event: Event) -> Result<(), ReplyOrIdError> {
         debug!("Got X11 event {:?}", event);
-        WMEvent::try_from(&event).map(|e| self.tx.send(e));
+        WmEvent::try_from(&event).map(|e| self.tx.send(e));
 
         match event {
             Event::UnmapNotify(event) => self.handle_unmap_notify(conn, event)?,

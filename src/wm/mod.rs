@@ -12,9 +12,9 @@ use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
 
 mod handler;
 
-use crate::bindings::{Button, Key};
+use crate::bindings::Key;
 use crate::client::Client;
-use crate::events::WMEvent;
+use crate::events::WmEvent;
 use crate::layout::Geometry;
 use crate::state::State;
 use crate::X11Conn;
@@ -47,7 +47,7 @@ pub struct WindowManager {
     pub atoms: Atoms,
     key_handlers: HashMap<Key, Vec<Handler>>,
     mode: WmMode,
-    tx: Sender<WMEvent>,
+    tx: Sender<WmEvent>,
 }
 
 impl WindowManager {
@@ -56,7 +56,7 @@ impl WindowManager {
         conn: Arc<X11Conn>,
         screen_num: usize,
         state: State,
-        tx: Sender<WMEvent>,
+        tx: Sender<WmEvent>,
     ) -> Result<Self, ReplyOrIdError> {
         let screen = &conn.setup().roots[screen_num];
         // Try to become the window manager. This causes an error if there is already another WM.
@@ -95,6 +95,11 @@ impl WindowManager {
                 )?;
             }
         }
+
+        // TODO: Is it possible to disable autorepeat and should it be disabled?
+        //let keyboard_control =
+        //    ChangeKeyboardControlAux::new().auto_repeat_mode(AutoRepeatMode::OFF);
+        //conn.change_keyboard_control(&keyboard_control)?;
 
         let atoms = Atoms::new(conn.as_ref())?;
 
@@ -144,6 +149,18 @@ impl WindowManager {
         conn: &X11Conn,
         keys: Vec<(Key, impl Fn() + 'static)>,
     ) -> Result<(), ReplyError> {
+        let key = Key {
+            modmask: ModMask::M4,
+            keycode: 38,
+        };
+        conn.grab_key(
+            true,
+            conn.setup().roots[self.screen_num].root,
+            key.modmask,
+            key.keycode,
+            GrabMode::ASYNC,
+            GrabMode::ASYNC,
+        )?;
         for (key, handler) in keys {
             conn.grab_key(
                 true,

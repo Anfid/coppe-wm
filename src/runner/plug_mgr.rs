@@ -1,42 +1,48 @@
 use log::*;
 use std::{
+    collections::{HashMap, VecDeque},
+    fmt::{self, Display},
     fs::File,
     io::Read,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 use wasmer::{Array, Instance, Module, NativeFunc, Store, Val, WasmPtr};
 
-use crate::events::WMEvent;
+use super::sub_mgr::SubscriptionManager;
+use crate::events::{EncodedEvent, WmEvent};
 use crate::X11Conn;
 
 #[derive(Default)]
 pub struct PluginManager {
     store: Store,
-    plugins: Vec<Plugin>,
+    instances: HashMap<PluginId, Instance>,
+    events: Arc<RwLock<HashMap<PluginId, Mutex<VecDeque<EncodedEvent>>>>>,
+    subscriptions: Arc<RwLock<SubscriptionManager>>,
 }
 
-pub struct Plugin {
-    pub id: String,
-    pub instance: Instance,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PluginId(String);
+
+impl From<String> for PluginId {
+    fn from(id: String) -> Self {
+        Self(id)
+    }
 }
 
-impl Plugin {
-    pub fn handle(&self, ev: &WMEvent) {
-        let handle: NativeFunc<(), ()> = match self.instance.exports.get_native_function("handle") {
-            Ok(func) => func,
-            Err(_) => return,
-        };
-        handle.call().unwrap();
+impl PartialEq<&str> for PluginId {
+    fn eq(&self, other: &&str) -> bool {
+        &self.0 == other
+    }
+}
+
+impl Display for PluginId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&*self.0, f)
     }
 }
 
 impl PluginManager {
-    pub fn init(
-        &mut self,
-        conn: Arc<X11Conn>,
-        subscriptions: Arc<Mutex<super::sub_mgr::SubscriptionManager>>,
-        state: crate::state::State,
-    ) {
+    pub fn init(&mut self, conn: Arc<X11Conn>, state: crate::state::State) {
         let plugin_dir = std::env::var("XDG_CONFIG_HOME")
             .map(|path| {
                 let mut path = std::path::PathBuf::from(path);
@@ -53,8 +59,13 @@ impl PluginManager {
             })
             .unwrap();
 
-        let imports =
-            super::imports::import_objects(&self.store, conn, subscriptions.clone(), state.clone());
+        let imports = super::imports::import_objects(
+            &self.store,
+            conn,
+            self.subscriptions.clone(),
+            self.events.clone(),
+            state.clone(),
+        );
 
         for plugin_dir_entry in std::fs::read_dir(&plugin_dir).unwrap() {
             let path = plugin_dir_entry.unwrap().path();
@@ -98,7 +109,7 @@ impl PluginManager {
                 });
 
             let id = if let Some(id) = id {
-                id
+                id.into()
             } else {
                 warn!(
                     "Plugin '{}' global 'id' could not be parsed",
@@ -112,11 +123,44 @@ impl PluginManager {
                 info!("Initialized {}", id);
             }
 
-            self.plugins.push(Plugin { id, instance })
+            self.instances.insert(id, instance);
         }
     }
 
-    pub fn get(&self, id: &str) -> Option<&Plugin> {
-        self.plugins.iter().find(|plugin| plugin.id == id)
+    pub fn handle(&self, ev: WmEvent) {
+        let sub_lock = self.subscriptions.read().unwrap();
+        let sub_iter = sub_lock.subscribers(&ev);
+        for subscriber in sub_iter.clone() {
+            // TODO: optimize locks and clones for read acces
+            self.events
+                .write()
+                .unwrap()
+                .entry(subscriber.clone())
+                .or_default()
+                .lock()
+                .unwrap()
+                .push_back((&ev).into());
+        }
+
+        for subscriber in sub_iter {
+            info!("Handling event {:?} by {}", ev, subscriber);
+
+            if let Some(instance) = self.instances.get(subscriber) {
+                let handle: NativeFunc<(), ()> =
+                    match instance.exports.get_native_function("handle") {
+                        Ok(func) => func,
+                        Err(e) => {
+                            warn!(
+                                "Unable to get function `handle` for plugin {}: {}",
+                                subscriber, e
+                            );
+                            continue;
+                        }
+                    };
+                handle.call().unwrap();
+            } else {
+                error!("Unable to find instance for subscriber {}", subscriber);
+            }
+        }
     }
 }
