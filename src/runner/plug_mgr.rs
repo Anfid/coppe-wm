@@ -1,10 +1,11 @@
 use log::*;
+use parking_lot::{Mutex, RwLock};
 use std::{
     collections::{HashMap, VecDeque},
     fmt::{self, Display},
     fs::File,
     io::Read,
-    sync::{mpsc, Arc, Mutex, RwLock},
+    sync::{mpsc, Arc},
 };
 use wasmer::{Array, Instance, Module, NativeFunc, Store, Val, WasmPtr};
 
@@ -141,17 +142,15 @@ impl PluginManager {
     }
 
     pub fn handle(&self, ev: WmEvent) {
-        let sub_lock = self.subscriptions.read().unwrap();
+        let sub_lock = self.subscriptions.read();
         let subs = sub_lock.subscribers(&ev);
         for subscriber in &subs {
             // TODO: optimize locks and clones for read acces
             self.events
                 .write()
-                .unwrap()
                 .entry((*subscriber).clone())
                 .or_default()
                 .lock()
-                .unwrap()
                 .push_back((&ev).into());
         }
 

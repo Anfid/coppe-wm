@@ -38,7 +38,8 @@ impl WmEvent {
         }
     }
 
-    pub fn matches(&self, filters: &SubscriptionFilterGroup) -> bool {
+    pub fn matches(&self, _filters: &SubscriptionFilterGroup) -> bool {
+        // No filters implemented yet
         true
     }
 }
@@ -149,7 +150,8 @@ pub struct SubscriptionFilterGroup(Vec<SubscriptionFilter>);
 
 impl SubscriptionFilterGroup {
     // TODO: Should be result?
-    fn parse(buffer: &[i32]) -> Option<Self> {
+    fn parse(_buffer: &[i32]) -> Option<Self> {
+        // No filters implemented yet
         Some(Self(Vec::new()))
     }
 

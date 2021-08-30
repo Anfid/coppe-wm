@@ -1,7 +1,8 @@
 use log::*;
+use parking_lot::{Mutex, RwLock};
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{mpsc::SyncSender, Arc, Mutex, RwLock},
+    sync::{mpsc::SyncSender, Arc},
 };
 use wasmer::{
     imports, Array, Function, Global, ImportObject, LazyInit, Memory, Store, Val, WasmPtr,
@@ -126,7 +127,7 @@ fn subscribe(env: &SubEnv, event_ptr: WasmPtr<i32, Array>, event_len: u32) {
         let event: Vec<i32> = event.into_iter().map(|cell| cell.get()).collect();
         let sub = Subscription::parse(event.as_ref())?;
         info!("subscribe to '{:?}' by {}", sub, plug_id);
-        Some(env.subscriptions.write().unwrap().subscribe(plug_id, sub))
+        Some(env.subscriptions.write().subscribe(plug_id, sub))
     });
 }
 
@@ -146,12 +147,7 @@ fn unsubscribe(env: &SubEnv, event_ptr: WasmPtr<i32, Array>, event_len: u32) {
         let event: Vec<i32> = event.into_iter().map(|cell| cell.get()).collect();
         let sub = Subscription::parse(event.as_ref())?;
         info!("unsubscribe from '{:?}' by {}", sub, plug_id);
-        Some(
-            env.subscriptions
-                .write()
-                .unwrap()
-                .unsubscribe(&plug_id, &sub),
-        )
+        Some(env.subscriptions.write().unsubscribe(&plug_id, &sub))
     });
 }
 
@@ -162,8 +158,8 @@ fn event_read(env: &EventEnv, buf_ptr: WasmPtr<i32, Array>, buf_len: u32, read_o
         .and_then(|plug_id| {
             let memory = env.memory_ref()?;
 
-            let events = env.events.read().unwrap();
-            let mut events = events.get(&plug_id)?.lock().unwrap();
+            let events = env.events.read();
+            let mut events = events.get(&plug_id)?.lock();
             let event = if let Some(e) = events.front() {
                 e
             } else {
@@ -199,8 +195,8 @@ fn event_read(env: &EventEnv, buf_ptr: WasmPtr<i32, Array>, buf_len: u32, read_o
 fn event_size(env: &EventEnv) -> i32 {
     env.read_id()
         .and_then(|plug_id| {
-            let events = env.events.read().unwrap();
-            let events = events.get(&plug_id)?.lock().unwrap();
+            let events = env.events.read();
+            let events = events.get(&plug_id)?.lock();
 
             let size = events.front().map(|event| event.size()).unwrap_or(0);
             info!("event_size by {}: {}", plug_id, size);

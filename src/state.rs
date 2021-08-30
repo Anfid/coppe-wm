@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+use parking_lot::{Mutex, MutexGuard};
+use std::sync::Arc;
 use wasmer::WasmerEnv;
 
 use crate::layout::*;
@@ -13,11 +14,11 @@ pub struct StateInner {
 
 impl State {
     pub fn get(&self) -> MutexGuard<StateInner> {
-        self.0.lock().unwrap()
+        self.0.lock()
     }
 
     pub fn try_get(&self) -> Option<MutexGuard<StateInner>> {
-        self.0.try_lock().ok()
+        self.0.try_lock()
     }
 }
 
