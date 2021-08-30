@@ -10,8 +10,8 @@ use wasmer::{
 use x11rb::protocol::xproto::{ConfigureWindowAux, ConnectionExt};
 
 use super::plug_mgr::PluginId;
-use super::sub_mgr::{EventSubscription, SubscriptionManager};
-use crate::events::EncodedEvent;
+use super::sub_mgr::SubscriptionManager;
+use crate::events::{EncodedEvent, Subscription};
 use crate::state::State;
 use crate::X11Conn;
 
@@ -112,27 +112,52 @@ pub(super) fn import_objects(
     }
 }
 
-fn subscribe(env: &SubEnv, event_id: u32) {
-    info!("Trying to sub to {}", event_id);
-    env.read_id()
-        .and_then(|p| EventSubscription::try_from(event_id).map(|e| (p, e)))
-        .map(|(p, e)| {
-            info!("subscribe to '{:?}' by {}", e, p);
-            env.subscriptions.write().unwrap().subscribe(p, e)
-        });
+/// Subscribe to a specific WM event.
+///
+/// Expects a pointer to a buffer, describing event and it's optional filters.
+///
+/// Event description buffer has the following format:
+/// * `<event_id: dword>` - see [events::id](crate::events::id);
+/// * `<event_payload: dword array>` - size and fields expected depend on `event_id`, see [EncodedEvent];
+/// * `[event_filter: <event_filter_id: dword>, <event_filter_payload: dword array>]`;
+fn subscribe(env: &SubEnv, event_ptr: WasmPtr<i32, Array>, event_len: u32) {
+    env.read_id().and_then(|plug_id| {
+        let memory = env.memory_ref()?;
+        let event = event_ptr.deref(memory, 0, event_len)?;
+        let event: Vec<i32> = event.into_iter().map(|cell| cell.get()).collect();
+        let sub = Subscription::parse(event.as_ref())?;
+        info!("subscribe to '{:?}' by {}", sub, plug_id);
+        Some(env.subscriptions.write().unwrap().subscribe(plug_id, sub))
+    });
 }
 
-fn unsubscribe(env: &SubEnv, event_id: u32) {
-    env.read_id()
-        .and_then(|p| EventSubscription::try_from(event_id).map(|e| (p, e)))
-        .map(|(p, e)| {
-            info!("unsubscribe from '{:?}' by {}", e, p);
-            env.subscriptions.write().unwrap().unsubscribe(&p, &e)
-        });
+/// Unsubscribe from a specific WM event.
+///
+/// Expects a pointer to a buffer, describing event and it's optional filters. If no filters are
+/// passed, subscription for all matching events will be cancelled.
+///
+/// Event description buffer has the following format:
+/// * `<event_id: dword>` - see [events::id](crate::events::id);
+/// * `<event_payload: dword array>` - size and fields expected depend on `event_id`, see [EncodedEvent];
+/// * `[event_filter: <event_filter_id: dword>, <event_filter_payload: dword array>]`;
+fn unsubscribe(env: &SubEnv, event_ptr: WasmPtr<i32, Array>, event_len: u32) {
+    env.read_id().and_then(|plug_id| {
+        let memory = env.memory_ref()?;
+        let event = event_ptr.deref(memory, 0, event_len)?;
+        let event: Vec<i32> = event.into_iter().map(|cell| cell.get()).collect();
+        let sub = Subscription::parse(event.as_ref())?;
+        info!("unsubscribe from '{:?}' by {}", sub, plug_id);
+        Some(
+            env.subscriptions
+                .write()
+                .unwrap()
+                .unsubscribe(&plug_id, &sub),
+        )
+    });
 }
 
-/// Read the next event. Returns number of read bytes or -1 if plugin id is unknown or writing to buffer is impossible.
-/// If bytes are read to end, event is removed from queue. This will happen even if first bytes were never read.
+/// Read the next event. Returns number of read dwords or -1 if plugin id is unknown or writing to buffer is impossible.
+/// If dwords are read to end, event is removed from queue. This will happen even if first dwords were never read.
 fn event_read(env: &EventEnv, buf_ptr: WasmPtr<i32, Array>, buf_len: u32, read_offset: u32) -> i32 {
     env.read_id()
         .and_then(|plug_id| {

@@ -1,14 +1,18 @@
+use x11rb::{errors::ReplyError, protocol::Event};
+
 use crate::bindings::Key;
-use x11rb::protocol::Event;
+use crate::X11Conn;
+
+pub mod id {
+    pub const KEY_PRESS: i32 = 1;
+    pub const KEY_RELEASE: i32 = 2;
+}
 
 #[derive(Debug)]
 pub enum WmEvent {
     KeyPressed(Key),
     KeyReleased(Key),
 }
-
-#[derive(Debug, Clone)]
-pub struct EncodedEvent(Vec<i32>);
 
 impl WmEvent {
     pub fn try_from(x_event: &Event) -> Option<Self> {
@@ -27,14 +31,21 @@ impl WmEvent {
         }
     }
 
-    pub fn id(&self) -> u32 {
+    pub fn id(&self) -> i32 {
         use WmEvent::*;
         match self {
-            KeyPressed(_) => 1,
-            KeyReleased(_) => 2,
+            KeyPressed(_) => id::KEY_PRESS,
+            KeyReleased(_) => id::KEY_RELEASE,
         }
     }
+
+    pub fn matches(&self, filters: &SubscriptionFilterGroup) -> bool {
+        true
+    }
 }
+
+#[derive(Debug, Clone)]
+pub struct EncodedEvent(Vec<i32>);
 
 impl EncodedEvent {
     pub fn size(&self) -> usize {
@@ -48,7 +59,7 @@ impl From<&WmEvent> for EncodedEvent {
 
         let mut encoded = Vec::new();
 
-        encoded.push(event.id() as i32);
+        encoded.push(event.id());
         match event {
             KeyPressed(key) => {
                 encoded.push(u16::from(key.modmask) as i32);
@@ -73,5 +84,85 @@ where
     #[inline]
     fn index(&self, index: I) -> &I::Output {
         &self.0[index]
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Subscription {
+    pub event: SubscriptionEvent,
+    pub filters: SubscriptionFilterGroup,
+}
+
+impl Subscription {
+    // TODO: Should be result?
+    pub fn parse(buffer: &[i32]) -> Option<Self> {
+        match buffer {
+            [id::KEY_PRESS, modmask, keycode, filters @ ..] => {
+                let event = KeySubscription::new(*modmask as u16, *keycode as u8);
+                let filters = SubscriptionFilterGroup::parse(filters)?;
+                Some(Self {
+                    event: SubscriptionEvent::KeyPressed(event),
+                    filters,
+                })
+            }
+            [id::KEY_RELEASE, modmask, keycode, filters @ ..] => {
+                let event = KeySubscription::new(*modmask as u16, *keycode as u8);
+                let filters = SubscriptionFilterGroup::parse(filters)?;
+                Some(Self {
+                    event: SubscriptionEvent::KeyReleased(event),
+                    filters,
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum SubscriptionEvent {
+    KeyPressed(KeySubscription),
+    KeyReleased(KeySubscription),
+}
+
+impl From<&WmEvent> for SubscriptionEvent {
+    fn from(ev: &WmEvent) -> Self {
+        use SubscriptionEvent::*;
+        match ev {
+            WmEvent::KeyPressed(key) => {
+                KeyPressed(KeySubscription::new(key.modmask.into(), key.keycode))
+            }
+            WmEvent::KeyReleased(key) => {
+                KeyReleased(KeySubscription::new(key.modmask.into(), key.keycode))
+            }
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct SubscriptionFilterGroup(Vec<SubscriptionFilter>);
+
+impl SubscriptionFilterGroup {
+    // TODO: Should be result?
+    fn parse(buffer: &[i32]) -> Option<Self> {
+        Some(Self(Vec::new()))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum SubscriptionFilter {}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub struct KeySubscription {
+    modmask: u16,
+    keycode: u8,
+}
+
+impl KeySubscription {
+    fn new(modmask: u16, keycode: u8) -> Self {
+        KeySubscription { modmask, keycode }
     }
 }

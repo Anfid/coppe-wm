@@ -20,7 +20,7 @@ pub struct PluginManager {
     subscriptions: Arc<RwLock<SubscriptionManager>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct PluginId(String);
 
 impl From<String> for PluginId {
@@ -129,20 +129,20 @@ impl PluginManager {
 
     pub fn handle(&self, ev: WmEvent) {
         let sub_lock = self.subscriptions.read().unwrap();
-        let sub_iter = sub_lock.subscribers(&ev);
-        for subscriber in sub_iter.clone() {
+        let subs = sub_lock.subscribers(&ev);
+        for subscriber in &subs {
             // TODO: optimize locks and clones for read acces
             self.events
                 .write()
                 .unwrap()
-                .entry(subscriber.clone())
+                .entry((*subscriber).clone())
                 .or_default()
                 .lock()
                 .unwrap()
                 .push_back((&ev).into());
         }
 
-        for subscriber in sub_iter {
+        for subscriber in subs {
             info!("Handling event {:?} by {}", ev, subscriber);
 
             if let Some(instance) = self.instances.get(subscriber) {

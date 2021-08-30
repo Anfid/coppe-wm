@@ -149,18 +149,6 @@ impl WindowManager {
         conn: &X11Conn,
         keys: Vec<(Key, impl Fn() + 'static)>,
     ) -> Result<(), ReplyError> {
-        let key = Key {
-            modmask: ModMask::M4,
-            keycode: 38,
-        };
-        conn.grab_key(
-            true,
-            conn.setup().roots[self.screen_num].root,
-            key.modmask,
-            key.keycode,
-            GrabMode::ASYNC,
-            GrabMode::ASYNC,
-        )?;
         for (key, handler) in keys {
             conn.grab_key(
                 true,
