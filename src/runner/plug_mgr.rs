@@ -60,14 +60,14 @@ impl PluginManager {
         let plugin_dir = std::env::var("XDG_CONFIG_HOME")
             .map(|path| {
                 let mut path = std::path::PathBuf::from(path);
-                path.push("waswm");
+                path.push("coppe-wm");
                 path
             })
             .or_else(|_| {
                 std::env::var("HOME").map(|path| {
                     let mut path = std::path::PathBuf::from(path);
                     path.push(".config");
-                    path.push("waswm");
+                    path.push("coppe-wm");
                     path
                 })
             })

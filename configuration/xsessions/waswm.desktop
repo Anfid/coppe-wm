@@ -1,6 +1,6 @@
 [Desktop Entry]
-Name=waswm
+Name=coppe-wm
 Comment=Window manager configurable with WASM plugins
-TryExec=waswm
-Exec=waswm
+TryExec=coppe-wm
+Exec=coppe-wm
 Type=Application
