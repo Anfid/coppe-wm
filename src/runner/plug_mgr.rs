@@ -4,20 +4,33 @@ use std::{
     fmt::{self, Display},
     fs::File,
     io::Read,
-    sync::{Arc, Mutex, RwLock},
+    sync::{mpsc, Arc, Mutex, RwLock},
 };
 use wasmer::{Array, Instance, Module, NativeFunc, Store, Val, WasmPtr};
 
+use super::imports;
 use super::sub_mgr::SubscriptionManager;
-use crate::events::{EncodedEvent, WmEvent};
-use crate::X11Conn;
+use crate::events::{Command, EncodedEvent, WmEvent};
+use crate::state::State;
 
-#[derive(Default)]
 pub struct PluginManager {
     store: Store,
     instances: HashMap<PluginId, Instance>,
     events: Arc<RwLock<HashMap<PluginId, Mutex<VecDeque<EncodedEvent>>>>>,
     subscriptions: Arc<RwLock<SubscriptionManager>>,
+    command_tx: mpsc::SyncSender<Command>,
+}
+
+impl PluginManager {
+    pub fn new(command_tx: mpsc::SyncSender<Command>) -> Self {
+        Self {
+            store: Default::default(),
+            instances: Default::default(),
+            events: Default::default(),
+            subscriptions: Arc::new(RwLock::new(SubscriptionManager::new(command_tx.clone()))),
+            command_tx,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -42,7 +55,7 @@ impl Display for PluginId {
 }
 
 impl PluginManager {
-    pub fn init(&mut self, conn: Arc<X11Conn>, state: crate::state::State) {
+    pub fn init(&mut self, state: State) {
         let plugin_dir = std::env::var("XDG_CONFIG_HOME")
             .map(|path| {
                 let mut path = std::path::PathBuf::from(path);
@@ -59,9 +72,9 @@ impl PluginManager {
             })
             .unwrap();
 
-        let imports = super::imports::import_objects(
+        let imports = imports::import_objects(
             &self.store,
-            conn,
+            self.command_tx.clone(),
             self.subscriptions.clone(),
             self.events.clone(),
             state.clone(),

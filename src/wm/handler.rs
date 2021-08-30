@@ -1,15 +1,37 @@
 use log::*;
+use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
-use x11rb::protocol::xproto::*;
-use x11rb::protocol::Event;
+use x11rb::protocol::{xproto::*, Event};
 use x11rb::CURRENT_TIME;
 
-use super::WindowManager;
-use crate::events::WmEvent;
+use super::{EventVariant, WindowManager};
+use crate::events::{Command, SubscriptionEvent, WmEvent};
 use crate::X11Conn;
 
 impl WindowManager {
-    pub fn handle_event(&mut self, conn: &X11Conn, event: Event) -> Result<(), ReplyOrIdError> {
+    pub fn handle_event(
+        &mut self,
+        conn: &X11Conn,
+        event: EventVariant,
+    ) -> Result<(), ReplyOrIdError> {
+        match event {
+            EventVariant::X(event) => self.handle_x_event(conn, event)?,
+            EventVariant::Command(cmd) => self.handle_command(conn, cmd)?,
+        }
+        Ok(())
+    }
+
+    fn handle_command(&mut self, conn: &X11Conn, command: Command) -> Result<(), ReplyOrIdError> {
+        debug!("Got command {:?}", command);
+        match command {
+            Command::Subscribe(sub) => self.handle_subscribe(conn, sub)?,
+            Command::Unsubscribe(sub) => todo!(),
+            Command::ConfigureWindow(aux) => todo!(),
+        }
+        Ok(())
+    }
+
+    fn handle_x_event(&mut self, conn: &X11Conn, event: Event) -> Result<(), ReplyOrIdError> {
         debug!("Got X11 event {:?}", event);
         WmEvent::try_from(&event).map(|e| self.tx.send(e));
 
@@ -25,6 +47,26 @@ impl WindowManager {
             Event::MotionNotify(event) => self.handle_motion_notify(conn, event)?,
             Event::KeyPress(event) => self.handle_key_press(event)?,
             _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_subscribe(
+        &mut self,
+        conn: &X11Conn,
+        sub: SubscriptionEvent,
+    ) -> Result<(), ReplyOrIdError> {
+        match sub {
+            SubscriptionEvent::KeyPressed(key) | SubscriptionEvent::KeyReleased(key) => {
+                conn.grab_key(
+                    true,
+                    conn.setup().roots[self.screen_num].root,
+                    key.modmask,
+                    key.keycode,
+                    GrabMode::ASYNC,
+                    GrabMode::ASYNC,
+                )?;
+            }
         }
         Ok(())
     }

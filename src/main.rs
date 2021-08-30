@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use x11rb::protocol::xproto::ModMask;
 pub use x11rb::rust_connection::RustConnection as X11Conn;
 
 mod bindings;
@@ -10,69 +9,25 @@ mod runner;
 mod state;
 mod wm;
 
-use crate::bindings::*;
 use crate::runner::Runner;
 use crate::state::State;
-use crate::wm::{Handler, WindowManager};
-
-const SYS_MOD: ModMask = ModMask::M4;
+use crate::wm::WindowManager;
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let state = State::default();
-    let (wm_tx, wm_rx) = std::sync::mpsc::channel();
-    let mut runner = Runner::new(state.clone(), wm_rx);
+    let (event_tx, event_rx) = std::sync::mpsc::channel();
+    let (command_tx, command_rx) = std::sync::mpsc::sync_channel(50);
+    let mut runner = Runner::new(state.clone(), event_rx, command_tx);
 
     let (conn, screen_num) = X11Conn::connect(None).unwrap();
     let conn = Arc::new(conn);
 
-    let runner_conn = conn.clone();
-    std::thread::spawn(move || runner.run(runner_conn));
+    std::thread::spawn(move || runner.run());
 
-    let mut wm = WindowManager::init(conn.clone(), screen_num, state, wm_tx).unwrap();
-    wm.bind_keys(&*conn, keys()).unwrap();
-
-    std::process::Command::new("feh")
-        .arg("--bg-scale")
-        .arg("/home/anfid/Pictures/Wallpapers/Sth2.png")
-        .spawn()
-        .unwrap();
+    let mut wm =
+        WindowManager::init(conn.clone(), screen_num, state, event_tx, command_rx).unwrap();
 
     wm.run(&*conn).unwrap();
-}
-
-fn keys() -> Vec<(Key, Handler)> {
-    vec![
-        (
-            Key {
-                modmask: SYS_MOD,
-                keycode: 53,
-            },
-            Box::new(|| {
-                std::process::Command::new("rofi")
-                    .args(&[
-                        "-modi",
-                        "drun,run",
-                        "-show",
-                        "run",
-                        "-location",
-                        "0",
-                        "-xoffset",
-                        "0",
-                    ])
-                    .spawn()
-                    .unwrap();
-            }),
-        ),
-        (
-            Key {
-                modmask: SYS_MOD,
-                keycode: 36,
-            },
-            Box::new(|| {
-                std::process::Command::new("kitty").spawn().unwrap();
-            }),
-        ),
-    ]
 }

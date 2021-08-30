@@ -1,7 +1,6 @@
-use x11rb::{errors::ReplyError, protocol::Event};
+use x11rb::protocol::{xproto::ConfigureWindowAux, Event};
 
 use crate::bindings::Key;
-use crate::X11Conn;
 
 pub mod id {
     pub const KEY_PRESS: i32 = 1;
@@ -42,6 +41,13 @@ impl WmEvent {
     pub fn matches(&self, filters: &SubscriptionFilterGroup) -> bool {
         true
     }
+}
+
+#[derive(Debug)]
+pub enum Command {
+    Subscribe(SubscriptionEvent),
+    Unsubscribe(SubscriptionEvent),
+    ConfigureWindow(ConfigureWindowAux),
 }
 
 #[derive(Debug, Clone)]
@@ -118,7 +124,7 @@ impl Subscription {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum SubscriptionEvent {
     KeyPressed(KeySubscription),
     KeyReleased(KeySubscription),
@@ -155,10 +161,10 @@ impl SubscriptionFilterGroup {
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum SubscriptionFilter {}
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct KeySubscription {
-    modmask: u16,
-    keycode: u8,
+    pub modmask: u16,
+    pub keycode: u8,
 }
 
 impl KeySubscription {

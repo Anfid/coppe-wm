@@ -1,12 +1,13 @@
 use log::*;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{mpsc::Sender, Arc},
+    sync::{mpsc, Arc},
+    thread,
 };
 use x11rb::atom_manager;
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
-use x11rb::protocol::xproto::*;
+use x11rb::protocol::{xproto::*, Event};
 use x11rb::x11_utils::X11Error;
 use x11rb::{COPY_DEPTH_FROM_PARENT, CURRENT_TIME};
 
@@ -14,7 +15,7 @@ mod handler;
 
 use crate::bindings::Key;
 use crate::client::Client;
-use crate::events::WmEvent;
+use crate::events::{Command, WmEvent};
 use crate::layout::Geometry;
 use crate::state::State;
 use crate::X11Conn;
@@ -47,7 +48,13 @@ pub struct WindowManager {
     pub atoms: Atoms,
     key_handlers: HashMap<Key, Vec<Handler>>,
     mode: WmMode,
-    tx: Sender<WmEvent>,
+    tx: mpsc::Sender<WmEvent>,
+    rx: mpsc::Receiver<EventVariant>,
+}
+
+pub enum EventVariant {
+    X(Event),
+    Command(Command),
 }
 
 impl WindowManager {
@@ -56,7 +63,8 @@ impl WindowManager {
         conn: Arc<X11Conn>,
         screen_num: usize,
         state: State,
-        tx: Sender<WmEvent>,
+        tx: mpsc::Sender<WmEvent>,
+        command_rx: mpsc::Receiver<Command>,
     ) -> Result<Self, ReplyOrIdError> {
         let screen = &conn.setup().roots[screen_num];
         // Try to become the window manager. This causes an error if there is already another WM.
@@ -96,6 +104,23 @@ impl WindowManager {
             }
         }
 
+        let (event_tx, event_rx) = mpsc::channel();
+        let x_event_conn = conn.clone();
+        let x_tx = event_tx.clone();
+        thread::spawn(move || loop {
+            let mut event_opt = x_event_conn.wait_for_event().ok();
+            while let Some(event) = event_opt {
+                x_tx.send(EventVariant::X(event)).unwrap();
+                event_opt = x_event_conn.poll_for_event().unwrap();
+            }
+        });
+        thread::spawn(move || loop {
+            match command_rx.recv() {
+                Ok(event) => event_tx.send(EventVariant::Command(event)).unwrap(),
+                _ => break,
+            };
+        });
+
         // TODO: Is it possible to disable autorepeat and should it be disabled?
         //let keyboard_control =
         //    ChangeKeyboardControlAux::new().auto_repeat_mode(AutoRepeatMode::OFF);
@@ -125,6 +150,7 @@ impl WindowManager {
             key_handlers: HashMap::new(),
             mode: WmMode::Default,
             tx,
+            rx: event_rx,
         })
     }
 
@@ -136,35 +162,12 @@ impl WindowManager {
             conn.flush().unwrap();
 
             // Handle as many events as possible before refresh, then wait again
-            let mut event_opt = conn.wait_for_event().ok();
+            let mut event_opt = self.rx.recv().ok();
             while let Some(event) = event_opt {
                 self.handle_event(conn, event).unwrap();
-                event_opt = conn.poll_for_event().unwrap();
+                event_opt = self.rx.try_recv().ok();
             }
         }
-    }
-
-    pub fn bind_keys(
-        &mut self,
-        conn: &X11Conn,
-        keys: Vec<(Key, impl Fn() + 'static)>,
-    ) -> Result<(), ReplyError> {
-        for (key, handler) in keys {
-            conn.grab_key(
-                true,
-                conn.setup().roots[self.screen_num].root,
-                key.modmask,
-                key.keycode,
-                GrabMode::ASYNC,
-                GrabMode::ASYNC,
-            )?;
-            if let Some(handlers) = self.key_handlers.get_mut(&key) {
-                handlers.push(Box::new(handler));
-            } else {
-                self.key_handlers.insert(key, vec![Box::new(handler)]);
-            }
-        }
-        Ok(())
     }
 
     pub fn focus_client(&mut self, conn: &X11Conn, rel_idx: i32) -> Result<(), ReplyError> {

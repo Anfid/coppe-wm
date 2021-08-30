@@ -1,12 +1,22 @@
 use log::*;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::mpsc::SyncSender};
 
 use super::plug_mgr::PluginId;
-use crate::events::{Subscription, SubscriptionEvent, SubscriptionFilterGroup, WmEvent};
+use crate::events::{Command, Subscription, SubscriptionEvent, SubscriptionFilterGroup, WmEvent};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SubscriptionManager {
     subs: HashMap<SubscriptionEvent, HashMap<PluginId, Vec<SubscriptionFilterGroup>>>,
+    conn: SyncSender<Command>,
+}
+
+impl SubscriptionManager {
+    pub fn new(command_tx: SyncSender<Command>) -> Self {
+        Self {
+            conn: command_tx,
+            subs: Default::default(),
+        }
+    }
 }
 
 impl SubscriptionManager {
@@ -29,15 +39,15 @@ impl SubscriptionManager {
 
     pub fn subscribe(&mut self, id: PluginId, sub: Subscription) {
         use std::collections::hash_map::Entry;
-        match self.subs.entry(sub.event) {
+        match self.subs.entry(sub.event.clone()) {
             Entry::Occupied(mut event_subs) => match event_subs.get_mut().entry(id) {
                 Entry::Occupied(mut filters) => filters.get_mut().push(sub.filters),
                 Entry::Vacant(filters) => {
-                    // TODO: Subscribe to X event
                     filters.insert(vec![sub.filters]);
                 }
             },
             Entry::Vacant(event_subs) => {
+                self.conn.send(Command::Subscribe(sub.event));
                 let mut sub_desc = HashMap::new();
                 sub_desc.insert(id, vec![sub.filters]);
                 event_subs.insert(sub_desc);
@@ -60,7 +70,7 @@ impl SubscriptionManager {
             }
 
             if subs.is_empty() {
-                // TODO: Unsubscribe from X event
+                self.conn.send(Command::Unsubscribe(unsub.event.clone()));
                 self.subs.remove(&unsub.event);
             }
         }

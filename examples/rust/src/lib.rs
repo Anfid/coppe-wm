@@ -27,17 +27,24 @@ pub static id: [u8; 10] = *b"rust_demo\0";
 pub extern "C" fn init() {
     let subscription = [EVENT_KEY_PRESS_ID, MOD_M4, 36];
     unsafe { subscribe(subscription.as_ptr(), subscription.len()) };
+    let subscription = [EVENT_KEY_PRESS_ID, MOD_M4, 53];
+    unsafe { subscribe(subscription.as_ptr(), subscription.len()) };
+
+    let wallpaper = "feh --bg-scale /home/anfid/Pictures/Wallpapers/Sth2.png";
+    unsafe { spawn(wallpaper.as_ptr(), wallpaper.len()) }
 }
 
 #[no_mangle]
 pub extern "C" fn handle() {
-    let terminal = "kitty -1";
+    let terminal = "kitty";
+    let rofi = "rofi -modi drun,run -show run -location 0 -xoffset 0";
 
     let mut event = [0; 3];
     unsafe { event_read(event.as_mut_ptr(), event.len(), 0) };
 
     match event {
         [EVENT_KEY_PRESS_ID, MOD_M4, 36] => unsafe { spawn(terminal.as_ptr(), terminal.len()) },
+        [EVENT_KEY_PRESS_ID, MOD_M4, 53] => unsafe { spawn(rofi.as_ptr(), rofi.len()) },
         _ => {}
     }
 }

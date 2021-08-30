@@ -1,24 +1,23 @@
 use log::*;
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex, RwLock},
+    sync::{mpsc::SyncSender, Arc, Mutex, RwLock},
 };
 use wasmer::{
     imports, Array, Function, Global, ImportObject, LazyInit, Memory, Store, Val, WasmPtr,
     WasmerEnv,
 };
-use x11rb::protocol::xproto::{ConfigureWindowAux, ConnectionExt};
+use x11rb::protocol::xproto::ConfigureWindowAux;
 
 use super::plug_mgr::PluginId;
 use super::sub_mgr::SubscriptionManager;
-use crate::events::{EncodedEvent, Subscription};
+use crate::events::{Command, EncodedEvent, Subscription};
 use crate::state::State;
-use crate::X11Conn;
 
 #[derive(WasmerEnv, Clone)]
 struct ConnEnv {
     wm_state: State,
-    conn: Arc<X11Conn>,
+    conn: SyncSender<Command>,
     #[wasmer(export)]
     memory: LazyInit<Memory>,
     #[wasmer(export)]
@@ -77,13 +76,13 @@ impl EventEnv {
 
 pub(super) fn import_objects(
     store: &Store,
-    conn: Arc<X11Conn>,
+    conn: SyncSender<Command>,
     subscriptions: Arc<RwLock<SubscriptionManager>>,
     events: Arc<RwLock<HashMap<PluginId, Mutex<VecDeque<EncodedEvent>>>>>,
     state: State,
 ) -> ImportObject {
     let conn_env = ConnEnv {
-        conn,
+        conn: conn.clone(),
         wm_state: state,
         memory: Default::default(),
         id: Default::default(),
@@ -164,10 +163,6 @@ fn event_read(env: &EventEnv, buf_ptr: WasmPtr<i32, Array>, buf_len: u32, read_o
             let memory = env.memory_ref()?;
 
             let events = env.events.read().unwrap();
-            // TODO REMOVE
-            if let None = events.get(&plug_id) {
-                warn!("NO EVENTS");
-            }
             let mut events = events.get(&plug_id)?.lock().unwrap();
             let event = if let Some(e) = events.front() {
                 e
@@ -176,8 +171,6 @@ fn event_read(env: &EventEnv, buf_ptr: WasmPtr<i32, Array>, buf_len: u32, read_o
             };
 
             let read_len = std::cmp::min(buf_len as i32, event.size() as i32 - read_offset as i32);
-            // TODO REMOVE
-            warn!("read_len: {}", read_len);
             // Return error if offset is greater than event length
             if read_len < 0 {
                 return None;
@@ -231,7 +224,7 @@ fn move_window(env: &ConnEnv, id: u32, x: i32, y: i32) {
 
     let aux = ConfigureWindowAux::default().x(x).y(y);
 
-    env.conn.configure_window(id, &aux).unwrap();
+    env.conn.send(Command::ConfigureWindow(aux)).unwrap();
 }
 
 fn spawn(env: &ConnEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) {

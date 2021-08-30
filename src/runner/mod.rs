@@ -1,13 +1,12 @@
 use log::*;
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 
 mod imports;
 mod plug_mgr;
 mod sub_mgr;
 
-use crate::events::WmEvent;
+use crate::events::{Command, WmEvent};
 use crate::state::State;
-use crate::X11Conn;
 use plug_mgr::PluginManager;
 
 pub struct Runner {
@@ -17,16 +16,20 @@ pub struct Runner {
 }
 
 impl Runner {
-    pub fn new(state: State, rx: mpsc::Receiver<WmEvent>) -> Self {
+    pub fn new(
+        state: State,
+        rx: mpsc::Receiver<WmEvent>,
+        command_tx: mpsc::SyncSender<Command>,
+    ) -> Self {
         Self {
-            plugins: Default::default(),
+            plugins: PluginManager::new(command_tx),
             state,
             rx,
         }
     }
 
-    pub fn run(&mut self, conn: Arc<X11Conn>) {
-        self.plugins.init(conn, self.state.clone());
+    pub fn run(&mut self) {
+        self.plugins.init(self.state.clone());
 
         while let Ok(event) = self.rx.recv() {
             info!("Dispatching event {:?}", event);
