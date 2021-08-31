@@ -7,3 +7,4 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
+coppe-core = { path = "../../coppe-core" }

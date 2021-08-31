@@ -1,13 +1,17 @@
-[package]
-name = "coppe-wm"
-version = "0.0.1"
-authors = ["Mikhail Pogretskiy <mikhail.pogretskiy@gmail.com>"]
-edition = "2018"
+[workspace]
 
-[dependencies]
-env_logger = "0.9"
-log = "0.4"
-parking_lot = "0.11.2"
-shlex = "1.0"
-wasmer = "2.0"
-x11rb = "0.9"
+members = [
+    "coppe-wm",
+    "coppe-core",
+    "coppe-std",
+]
+
+exclude = [
+    "plugins/rust"
+]
+
+[profile.release.package.coppe-core]
+opt-level = "s"
+
+[profile.release.package.coppe-std]
+opt-level = "s"

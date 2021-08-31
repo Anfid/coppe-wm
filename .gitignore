@@ -1,8 +1,8 @@
 /target
 
 # Compiled examples
-/examples/**/*.wasm
+/plugins/**/*.wasm
 
 # Cargo cache from examples
-/examples/**/target
-/examples/**/Cargo.lock
+/plugins/**/target
+/plugins/**/Cargo.lock

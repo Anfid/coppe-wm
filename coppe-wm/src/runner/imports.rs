@@ -105,7 +105,7 @@ pub(super) fn import_objects(
             "unsubscribe" => Function::new_native_with_env(store, sub_env.clone(), unsubscribe),
             "event_read" => Function::new_native_with_env(store, event_env.clone(), event_read),
             "event_size" => Function::new_native_with_env(store, event_env.clone(), event_size),
-            "debug" => Function::new_native_with_env(store, conn_env.clone(), debug),
+            "debug_log" => Function::new_native_with_env(store, conn_env.clone(), debug_log),
             "move_window" => Function::new_native_with_env(store, conn_env.clone(), move_window),
             "spawn" => Function::new_native_with_env(store, conn_env.clone(), spawn),
         }
@@ -205,7 +205,7 @@ fn event_size(env: &EventEnv) -> i32 {
         .unwrap_or(-1)
 }
 
-fn debug(env: &ConnEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) {
+fn debug_log(env: &ConnEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) {
     env.read_id().and_then(|plug_id| {
         let memory = env.memory_ref()?;
         let debug_string = unsafe { cmd_ptr.get_utf8_str(memory, cmd_len)? };
