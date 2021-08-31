@@ -155,7 +155,7 @@ impl PluginManager {
         }
 
         for subscriber in subs {
-            info!("Handling event {:?} by {}", ev, subscriber);
+            info!("Calling handle on {}; Reason: event {:?}", subscriber, ev);
 
             if let Some(instance) = self.instances.get(subscriber) {
                 let handle: NativeFunc<(), ()> =

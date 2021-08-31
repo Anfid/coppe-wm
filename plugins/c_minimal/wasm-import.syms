@@ -1,4 +1,5 @@
+debug_log
 move_window
+spawn
 subscribe
 unsubscribe
-spawn

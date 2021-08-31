@@ -120,15 +120,22 @@ pub(super) fn import_objects(
 /// * `<event_id: dword>` - see [events::id](crate::events::id);
 /// * `<event_payload: dword array>` - size and fields expected depend on `event_id`, see [EncodedEvent];
 /// * `[event_filter: <event_filter_id: dword>, <event_filter_payload: dword array>]`;
-fn subscribe(env: &SubEnv, event_ptr: WasmPtr<i32, Array>, event_len: u32) {
-    env.read_id().and_then(|plug_id| {
-        let memory = env.memory_ref()?;
-        let event = event_ptr.deref(memory, 0, event_len)?;
-        let event: Vec<i32> = event.into_iter().map(|cell| cell.get()).collect();
-        let sub = Subscription::parse(event.as_ref())?;
-        info!("subscribe to '{:?}' by {}", sub, plug_id);
-        Some(env.subscriptions.write().subscribe(plug_id, sub))
-    });
+fn subscribe(env: &SubEnv, event_ptr: WasmPtr<i32, Array>, event_len: u32) -> i32 {
+    env.read_id()
+        .ok_or(ErrorCode::UnableToGetId)
+        .and_then(|id| {
+            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
+            let event = event_ptr
+                .deref(memory, 0, event_len)
+                .ok_or(ErrorCode::BadArgument)?;
+            let event: Vec<i32> = event.into_iter().map(|cell| cell.get()).collect();
+            let sub = Subscription::parse(event.as_ref()).ok_or(ErrorCode::BadArgument)?;
+            info!("{}: subscribe to {:?}", id, sub);
+            env.subscriptions.write().subscribe(id, sub);
+            Ok(())
+        })
+        .err()
+        .unwrap_or(ErrorCode::Ok) as i32
 }
 
 /// Unsubscribe from a specific WM event.
@@ -140,101 +147,167 @@ fn subscribe(env: &SubEnv, event_ptr: WasmPtr<i32, Array>, event_len: u32) {
 /// * `<event_id: dword>` - see [events::id](crate::events::id);
 /// * `<event_payload: dword array>` - size and fields expected depend on `event_id`, see [EncodedEvent];
 /// * `[event_filter: <event_filter_id: dword>, <event_filter_payload: dword array>]`;
-fn unsubscribe(env: &SubEnv, event_ptr: WasmPtr<i32, Array>, event_len: u32) {
-    env.read_id().and_then(|plug_id| {
-        let memory = env.memory_ref()?;
-        let event = event_ptr.deref(memory, 0, event_len)?;
-        let event: Vec<i32> = event.into_iter().map(|cell| cell.get()).collect();
-        let sub = Subscription::parse(event.as_ref())?;
-        info!("unsubscribe from '{:?}' by {}", sub, plug_id);
-        Some(env.subscriptions.write().unsubscribe(&plug_id, &sub))
-    });
+fn unsubscribe(env: &SubEnv, event_ptr: WasmPtr<i32, Array>, event_len: u32) -> i32 {
+    env.read_id()
+        .ok_or(ErrorCode::UnableToGetId)
+        .and_then(|id| {
+            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
+            let event = event_ptr
+                .deref(memory, 0, event_len)
+                .ok_or(ErrorCode::BadArgument)?;
+            let event: Vec<i32> = event.into_iter().map(|cell| cell.get()).collect();
+            let sub = Subscription::parse(event.as_ref()).ok_or(ErrorCode::BadArgument)?;
+            info!("{}: unsubscribe from {:?}", id, sub);
+            env.subscriptions.write().unsubscribe(&id, &sub);
+            Ok(())
+        })
+        .err()
+        .unwrap_or(ErrorCode::Ok) as i32
 }
 
 /// Read the next event. Returns number of read dwords or -1 if plugin id is unknown or writing to buffer is impossible.
 /// If dwords are read to end, event is removed from queue. This will happen even if first dwords were never read.
 fn event_read(env: &EventEnv, buf_ptr: WasmPtr<i32, Array>, buf_len: u32, read_offset: u32) -> i32 {
-    env.read_id()
-        .and_then(|plug_id| {
-            let memory = env.memory_ref()?;
+    let res = env
+        .read_id()
+        .ok_or(ErrorCode::UnableToGetId)
+        .and_then(|id| {
+            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
 
             let events = env.events.read();
-            let mut events = events.get(&plug_id)?.lock();
-            let event = if let Some(e) = events.front() {
+            let plugin_events = if let Some(e) = events.get(&id) {
                 e
             } else {
-                return Some(0);
+                return Ok(0);
+            };
+            let mut plugin_events = plugin_events.lock();
+
+            let event = if let Some(e) = plugin_events.front() {
+                e
+            } else {
+                return Ok(0);
             };
 
             let read_len = std::cmp::min(buf_len as i32, event.size() as i32 - read_offset as i32);
             // Return error if offset is greater than event length
             if read_len < 0 {
-                return None;
+                return Err(ErrorCode::BadArgument);
             }
 
             unsafe {
-                let ptr = buf_ptr.deref_mut(memory, 0, buf_len)?;
+                let ptr = buf_ptr
+                    .deref_mut(memory, 0, buf_len)
+                    .ok_or(ErrorCode::BadArgument)?;
 
                 for i in 0..read_len as usize {
                     ptr[i].set(event[read_offset as usize + i]);
                 }
             }
-            info!("event_read by {}: {:?}, {}", plug_id, event, read_len);
+            info!(
+                "{}: event_read; Response: {:?}, {} dwords",
+                id, event, read_len
+            );
 
             // Pop event if it was read to end
             if event.size() - read_offset as usize == read_len as usize {
-                events.pop_front();
+                plugin_events.pop_front();
             }
 
-            Some(read_len)
-        })
-        .unwrap_or(-1)
+            Ok(read_len)
+        });
+
+    match res {
+        Ok(v) => v as i32,
+        Err(v) => v as i32,
+    }
 }
 
-/// Query the size of next event. Returns 0 if no event is in queue or -1 if plugin id is unknown.
+/// Query the size of next event.
+///
+/// Returns size of next event or 0 if no event is in queue or error code.
 fn event_size(env: &EventEnv) -> i32 {
-    env.read_id()
-        .and_then(|plug_id| {
-            let events = env.events.read();
-            let events = events.get(&plug_id)?.lock();
+    let res = env.read_id().ok_or(ErrorCode::UnableToGetId).map(|id| {
+        let events = env.events.read();
+        events
+            .get(&id)
+            .map(|plugin_events| {
+                let plugin_events = plugin_events.lock();
 
-            let size = events.front().map(|event| event.size()).unwrap_or(0);
-            info!("event_size by {}: {}", plug_id, size);
-            Some(size as i32)
-        })
-        .unwrap_or(-1)
-}
-
-fn debug_log(env: &ConnEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) {
-    env.read_id().and_then(|plug_id| {
-        let memory = env.memory_ref()?;
-        let debug_string = unsafe { cmd_ptr.get_utf8_str(memory, cmd_len)? };
-        info!("{}: {}", plug_id, debug_string);
-        Some(())
+                let size = plugin_events.front().map(|event| event.size()).unwrap_or(0);
+                info!("{}: event_size; Response: {}", id, size);
+                size as i32
+            })
+            .unwrap_or(0)
     });
+    match res {
+        Ok(v) => v as i32,
+        Err(v) => v as i32,
+    }
 }
 
-fn move_window(env: &ConnEnv, id: u32, x: i32, y: i32) {
-    let plugin_id = env.read_id();
-    info!("move_window {} to [{}, {}] by {:?}", id, x, y, plugin_id);
-
-    let aux = ConfigureWindowAux::default().x(x).y(y);
-
-    env.conn.send(Command::ConfigureWindow(aux)).unwrap();
-}
-
-fn spawn(env: &ConnEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) {
-    env.memory_ref()
-        .and_then(|memory| {
-            let id = env.read_id()?;
-            let cmd_string = cmd_ptr.get_utf8_string(memory, cmd_len)?;
-            info!("spawn '{}' by {}", cmd_string, id);
-            shlex::split(&cmd_string)
+fn debug_log(env: &ConnEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
+    env.read_id()
+        .ok_or(ErrorCode::UnableToGetId)
+        .and_then(|id| {
+            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
+            let debug_string = unsafe {
+                cmd_ptr
+                    .get_utf8_str(memory, cmd_len)
+                    .ok_or(ErrorCode::BadArgument)?
+            };
+            info!("{}: {}", id, debug_string);
+            Ok(())
         })
-        .filter(|cmd_args| cmd_args.len() > 0)
-        .map(|cmd_args| {
+        .err()
+        .unwrap_or(ErrorCode::Ok) as i32
+}
+
+fn move_window(env: &ConnEnv, window_id: u32, x: i32, y: i32) -> i32 {
+    env.read_id()
+        .ok_or(ErrorCode::UnableToGetId)
+        .and_then(|id| {
+            info!("{}: move_window {} to [{}, {}]", id, window_id, x, y);
+            let aux = ConfigureWindowAux::default().x(x).y(y);
+
+            env.conn
+                .send(Command::ConfigureWindow(aux))
+                .map_err(|_| ErrorCode::Send)
+        })
+        .err()
+        .unwrap_or(ErrorCode::Ok) as i32
+}
+
+fn spawn(env: &ConnEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
+    env.read_id()
+        .ok_or(ErrorCode::UnableToGetId)
+        .and_then(|id| {
+            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
+            let cmd_string = cmd_ptr
+                .get_utf8_string(memory, cmd_len)
+                .ok_or(ErrorCode::BadArgument)?;
+            info!("{}: spawn '{}'", id, cmd_string);
+            shlex::split(&cmd_string).ok_or(ErrorCode::BadArgument)
+        })
+        .and_then(|cmd_args| {
+            (cmd_args.len() > 0)
+                .then(|| cmd_args)
+                .ok_or(ErrorCode::BadArgument)
+        })
+        .and_then(|cmd_args| {
             std::process::Command::new(&cmd_args[0])
                 .args(&cmd_args[1..])
                 .spawn()
-        });
+                .map_err(|_| ErrorCode::Execution)
+        })
+        .err()
+        .unwrap_or(ErrorCode::Ok) as i32
+}
+
+enum ErrorCode {
+    UnableToGetId = -128,
+    UnableToGetMemory = -127,
+    Send = -126,
+    BadArgument = -2,
+    Execution = -1,
+    Ok = 0,
 }
