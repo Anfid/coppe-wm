@@ -47,7 +47,8 @@ impl SubscriptionManager {
                 }
             },
             Entry::Vacant(event_subs) => {
-                self.conn.send(Command::Subscribe(sub.event));
+                info!("Initializing X subscription for {:?}", sub.event);
+                self.conn.send(Command::Subscribe(sub.event)).unwrap();
                 let mut sub_desc = HashMap::new();
                 sub_desc.insert(id, vec![sub.filters]);
                 event_subs.insert(sub_desc);
@@ -70,7 +71,10 @@ impl SubscriptionManager {
             }
 
             if subs.is_empty() {
-                self.conn.send(Command::Unsubscribe(unsub.event.clone()));
+                info!("Uninitializing X subscription for {:?}", unsub.event);
+                self.conn
+                    .send(Command::Unsubscribe(unsub.event.clone()))
+                    .unwrap();
                 self.subs.remove(&unsub.event);
             }
         }

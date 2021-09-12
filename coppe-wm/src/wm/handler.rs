@@ -25,8 +25,8 @@ impl WindowManager {
         debug!("Got command {:?}", command);
         match command {
             Command::Subscribe(sub) => self.handle_subscribe(conn, sub)?,
-            Command::Unsubscribe(sub) => todo!(),
-            Command::ConfigureWindow(aux) => todo!(),
+            Command::Unsubscribe(_sub) => todo!(),
+            Command::ConfigureWindow(_aux) => todo!(),
         }
         Ok(())
     }
@@ -45,7 +45,6 @@ impl WindowManager {
             Event::ButtonPress(event) => self.handle_button_press(event)?,
             Event::ButtonRelease(event) => self.handle_button_release(conn, event)?,
             Event::MotionNotify(event) => self.handle_motion_notify(conn, event)?,
-            Event::KeyPress(event) => self.handle_key_press(event)?,
             _ => {}
         }
         Ok(())
@@ -77,11 +76,12 @@ impl WindowManager {
         event: UnmapNotifyEvent,
     ) -> Result<(), ReplyError> {
         let conn = conn;
-        self.clients.retain(|state| {
+        let mut state = self.state.get_mut();
+        state.clients.retain(|state| {
             if state.window != event.window {
                 true
             } else {
-                conn.destroy_window(state.frame_window).unwrap();
+                conn.destroy_window(state.window).unwrap();
                 false
             }
         });
@@ -93,7 +93,7 @@ impl WindowManager {
         conn: &X11Conn,
         event: ConfigureRequestEvent,
     ) -> Result<(), ReplyError> {
-        if let Some(_client) = self.find_window_by_id(event.window) {
+        if let Some(_client) = self.state.get_client_by_id(event.window) {
             //
         }
         let mut aux = ConfigureWindowAux::default();
@@ -115,7 +115,7 @@ impl WindowManager {
     }
 
     fn handle_configure_notify(&mut self, event: ConfigureNotifyEvent) -> Result<(), ReplyError> {
-        if let Some(client) = self.find_window_by_id_mut(event.window) {
+        if let Some(mut client) = self.state.get_client_by_id_mut(event.window) {
             client.x = event.x;
             client.y = event.y;
             client.width = event.width;
@@ -144,13 +144,8 @@ impl WindowManager {
         Ok(())
     }
 
-    // TODO: For some reason event seems to randomly return to WM
     fn handle_enter(&mut self, conn: &X11Conn, event: EnterNotifyEvent) -> Result<(), ReplyError> {
-        let window = if let Some(client) = self.find_window_by_id(event.event) {
-            client.window
-        } else {
-            event.event
-        };
+        let window = event.event;
 
         let data = [self.atoms.WM_TAKE_FOCUS, CURRENT_TIME, 0, 0, 0];
         let event = ClientMessageEvent {
@@ -163,7 +158,7 @@ impl WindowManager {
         };
 
         conn.send_event(false, window, EventMask::NO_EVENT, &event)?
-            .check();
+            .check()?;
 
         let aux = ConfigureWindowAux::default().stack_mode(StackMode::ABOVE);
         conn.configure_window(window, &aux)?;
@@ -174,7 +169,7 @@ impl WindowManager {
 
     fn handle_button_press(&mut self, event: ButtonPressEvent) -> Result<(), ReplyError> {
         if event.detail == ButtonIndex::M1.into() {
-            if let Some(client) = self.find_window_by_id(event.child) {
+            if let Some(client) = self.state.get_client_by_id(event.child) {
                 debug!(
                     "Entered ClientMove mode with {} {}",
                     event.root_x - client.x,
@@ -183,7 +178,7 @@ impl WindowManager {
                 self.mode = super::WmMode::ClientMove {
                     x: event.root_x - client.x,
                     y: event.root_y - client.y,
-                    client_id: client.frame_window,
+                    client_id: client.window,
                 };
             }
         }
@@ -203,7 +198,7 @@ impl WindowManager {
             }
         }
 
-        if let Some(client) = self.find_window_by_id(event.event) {
+        if let Some(client) = self.state.get_client_by_id(event.event) {
             let data = [self.atoms.WM_DELETE_WINDOW, 0, 0, 0, 0];
             let event = ClientMessageEvent {
                 response_type: CLIENT_MESSAGE_EVENT,
@@ -232,15 +227,6 @@ impl WindowManager {
 
                 debug!("Configure: {:?}", aux);
                 conn.configure_window(client_id, &aux)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn handle_key_press(&mut self, event: KeyPressEvent) -> Result<(), ReplyError> {
-        if let Some(handlers) = self.key_handlers.get(&(event.state, event.detail).into()) {
-            for handler in handlers {
-                handler()
             }
         }
         Ok(())
