@@ -1,11 +1,12 @@
+use coppe_common::event::Event;
 use log::*;
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
-use x11rb::protocol::{xproto::*, Event};
+use x11rb::protocol::{xproto::*, Event as XEvent};
 use x11rb::CURRENT_TIME;
 
 use super::{EventVariant, WindowManager};
-use crate::events::{Command, SubscriptionEvent, WmEvent};
+use crate::events::{Command, WmEvent};
 use crate::X11Conn;
 
 impl WindowManager {
@@ -31,32 +32,28 @@ impl WindowManager {
         Ok(())
     }
 
-    fn handle_x_event(&mut self, conn: &X11Conn, event: Event) -> Result<(), ReplyOrIdError> {
+    fn handle_x_event(&mut self, conn: &X11Conn, event: XEvent) -> Result<(), ReplyOrIdError> {
         debug!("Got X11 event {:?}", event);
         WmEvent::try_from(&event).map(|e| self.tx.send(e));
 
         match event {
-            Event::UnmapNotify(event) => self.handle_unmap_notify(conn, event)?,
-            Event::ConfigureRequest(event) => self.handle_configure_request(conn, event)?,
-            Event::ConfigureNotify(event) => self.handle_configure_notify(event)?,
-            Event::MapRequest(event) => self.handle_map_request(conn, event)?,
-            Event::Expose(event) => self.handle_expose(event)?,
-            Event::EnterNotify(event) => self.handle_enter(conn, event)?,
-            Event::ButtonPress(event) => self.handle_button_press(event)?,
-            Event::ButtonRelease(event) => self.handle_button_release(conn, event)?,
-            Event::MotionNotify(event) => self.handle_motion_notify(conn, event)?,
+            XEvent::UnmapNotify(event) => self.handle_unmap_notify(conn, event)?,
+            XEvent::ConfigureRequest(event) => self.handle_configure_request(conn, event)?,
+            XEvent::ConfigureNotify(event) => self.handle_configure_notify(event)?,
+            XEvent::MapRequest(event) => self.handle_map_request(conn, event)?,
+            XEvent::Expose(event) => self.handle_expose(event)?,
+            XEvent::EnterNotify(event) => self.handle_enter(conn, event)?,
+            XEvent::ButtonPress(event) => self.handle_button_press(event)?,
+            XEvent::ButtonRelease(event) => self.handle_button_release(conn, event)?,
+            XEvent::MotionNotify(event) => self.handle_motion_notify(conn, event)?,
             _ => {}
         }
         Ok(())
     }
 
-    fn handle_subscribe(
-        &mut self,
-        conn: &X11Conn,
-        sub: SubscriptionEvent,
-    ) -> Result<(), ReplyOrIdError> {
+    fn handle_subscribe(&mut self, conn: &X11Conn, sub: Event) -> Result<(), ReplyOrIdError> {
         match sub {
-            SubscriptionEvent::KeyPressed(key) | SubscriptionEvent::KeyReleased(key) => {
+            Event::KeyPress(key) | Event::KeyRelease(key) => {
                 conn.grab_key(
                     true,
                     conn.setup().roots[self.screen_num].root,
@@ -77,11 +74,11 @@ impl WindowManager {
     ) -> Result<(), ReplyError> {
         let conn = conn;
         let mut state = self.state.get_mut();
-        state.clients.retain(|state| {
-            if state.window != event.window {
+        state.clients.retain(|client| {
+            if client.id != event.window {
                 true
             } else {
-                conn.destroy_window(state.window).unwrap();
+                conn.destroy_window(client.id).unwrap();
                 false
             }
         });
@@ -178,7 +175,7 @@ impl WindowManager {
                 self.mode = super::WmMode::ClientMove {
                     x: event.root_x - client.x,
                     y: event.root_y - client.y,
-                    client_id: client.window,
+                    client_id: client.id,
                 };
             }
         }
@@ -204,11 +201,11 @@ impl WindowManager {
                 response_type: CLIENT_MESSAGE_EVENT,
                 format: 32,
                 sequence: 0,
-                window: client.window,
+                window: client.id,
                 type_: self.atoms.WM_PROTOCOLS,
                 data: data.into(),
             };
-            conn.send_event(false, client.window, EventMask::NO_EVENT, &event)?;
+            conn.send_event(false, client.id, EventMask::NO_EVENT, &event)?;
         }
         Ok(())
     }

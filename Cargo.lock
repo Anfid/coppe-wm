@@ -83,17 +83,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "coppe-common"
+version = "0.0.1"
+
+[[package]]
 name = "coppe-core"
 version = "0.0.1"
+dependencies = [
+ "coppe-common",
+]
 
 [[package]]
 name = "coppe-std"
 version = "0.0.1"
+dependencies = [
+ "coppe-common",
+ "coppe-core",
+]
 
 [[package]]
 name = "coppe-wm"
 version = "0.0.1"
 dependencies = [
+ "coppe-common",
  "env_logger",
  "log",
  "parking_lot",

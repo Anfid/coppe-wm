@@ -1,21 +1,32 @@
+use coppe_common::client::Client as CommonClient;
+use std::ops::{Deref, DerefMut};
 use x11rb::protocol::xproto::*;
 
-pub struct Client {
-    pub window: Window,
-    pub x: i16,
-    pub y: i16,
-    pub width: u16,
-    pub height: u16,
-}
+#[derive(Debug, Clone, Copy)]
+pub struct Client(CommonClient);
 
 impl Client {
-    pub fn new(window: Window, geom: &GetGeometryReply) -> Client {
-        Client {
-            window,
+    pub fn new(id: Window, geom: &GetGeometryReply) -> Self {
+        Self(CommonClient {
+            id,
             x: geom.x,
             y: geom.y,
             width: geom.width,
             height: geom.height,
-        }
+        })
+    }
+}
+
+impl Deref for Client {
+    type Target = CommonClient;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Client {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }

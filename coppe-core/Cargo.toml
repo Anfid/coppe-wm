@@ -1,7 +1,0 @@
-[package]
-name = "coppe-core"
-version = "0.0.1"
-authors = ["Mikhail Pogretskiy <mikhail.pogretskiy@gmail.com>"]
-edition = "2018"
-
-[dependencies]

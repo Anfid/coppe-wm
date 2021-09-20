@@ -3,3 +3,5 @@ move_window
 spawn
 subscribe
 unsubscribe
+event_read
+event_len

@@ -1,3 +1,4 @@
+use coppe_common::event::Event;
 use log::*;
 use parking_lot::{Mutex, RwLock};
 use std::{
@@ -11,13 +12,13 @@ use wasmer::{Array, Instance, Module, NativeFunc, Store, Val, WasmPtr};
 
 use super::imports;
 use super::sub_mgr::SubscriptionManager;
-use crate::events::{Command, EncodedEvent, WmEvent};
+use crate::events::{Command, WmEvent};
 use crate::state::State;
 
 pub struct PluginManager {
     store: Store,
     instances: HashMap<PluginId, Instance>,
-    events: Arc<RwLock<HashMap<PluginId, Mutex<VecDeque<EncodedEvent>>>>>,
+    events: Arc<RwLock<HashMap<PluginId, Mutex<VecDeque<Event>>>>>,
     subscriptions: Arc<RwLock<SubscriptionManager>>,
     command_tx: mpsc::SyncSender<Command>,
 }
@@ -144,6 +145,7 @@ impl PluginManager {
     pub fn handle(&self, ev: WmEvent) {
         let sub_lock = self.subscriptions.read();
         let subs = sub_lock.subscribers(&ev);
+
         for subscriber in &subs {
             // TODO: optimize locks and clones for read acces
             self.events
@@ -151,7 +153,7 @@ impl PluginManager {
                 .entry((*subscriber).clone())
                 .or_default()
                 .lock()
-                .push_back((&ev).into());
+                .push_back(ev.clone().into());
         }
 
         for subscriber in subs {

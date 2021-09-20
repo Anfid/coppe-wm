@@ -171,11 +171,11 @@ impl WindowManager {
 
         let state = self.state.get();
         let win = if idx >= state.clients.len() as i32 {
-            state.clients[0].window
+            state.clients[0].id
         } else if idx < 0 {
-            state.clients[state.clients.len() - 1].window
+            state.clients[state.clients.len() - 1].id
         } else {
-            state.clients[state.focused + 1].window
+            state.clients[state.focused + 1].id
         };
 
         let aux = ConfigureWindowAux::default().stack_mode(StackMode::ABOVE);

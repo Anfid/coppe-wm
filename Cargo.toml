@@ -2,12 +2,13 @@
 
 members = [
     "coppe-wm",
-    "coppe-core",
-    "coppe-std",
+    "coppe-common",
+    "libcoppe/rust/coppe-core",
+    "libcoppe/rust/coppe-std",
 ]
 
 exclude = [
-    "plugins/rust"
+    "plugins"
 ]
 
 [profile.release.package.coppe-core]

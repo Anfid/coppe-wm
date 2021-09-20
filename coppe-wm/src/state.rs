@@ -28,15 +28,12 @@ impl State {
 
     pub fn get_client_by_id(&self, id: Window) -> Option<MappedRwLockReadGuard<Client>> {
         let lock = self.0.read();
-        RwLockReadGuard::try_map(lock, |state| state.clients.iter().find(|c| c.window == id)).ok()
+        RwLockReadGuard::try_map(lock, |state| state.clients.iter().find(|c| c.id == id)).ok()
     }
 
     pub fn get_client_by_id_mut(&self, id: Window) -> Option<MappedRwLockWriteGuard<Client>> {
         let lock = self.0.write();
-        RwLockWriteGuard::try_map(lock, |state| {
-            state.clients.iter_mut().find(|c| c.window == id)
-        })
-        .ok()
+        RwLockWriteGuard::try_map(lock, |state| state.clients.iter_mut().find(|c| c.id == id)).ok()
     }
 }
 

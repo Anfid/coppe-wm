@@ -1,7 +1,7 @@
+use crate::encoding::{Decode, DecodeError, Encode, EncodeError};
 use core::ops::{BitOr, BitOrAssign};
 
-use crate::event::SubscriptionEvent;
-
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Key {
     pub modmask: ModMask,
     pub keycode: Keycode,
@@ -11,14 +11,6 @@ impl Key {
     pub fn new(modmask: ModMask, keycode: Keycode) -> Self {
         Self { modmask, keycode }
     }
-
-    pub fn press_subscription(self) -> SubscriptionEvent {
-        SubscriptionEvent::KeyPress(self)
-    }
-
-    pub fn release_subscription(self) -> SubscriptionEvent {
-        SubscriptionEvent::KeyRelease(self)
-    }
 }
 
 impl From<(ModMask, Keycode)> for Key {
@@ -27,7 +19,53 @@ impl From<(ModMask, Keycode)> for Key {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+impl core::hash::Hash for Key {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        u16::from(self.modmask).hash(state);
+        u8::from(self.keycode).hash(state);
+    }
+}
+
+impl Decode for Key {
+    type Error = DecodeError;
+
+    fn decode(buffer: &[u8]) -> Result<Self, Self::Error> {
+        if buffer.len() < 3 {
+            return Err(DecodeError::BadFormat);
+        }
+
+        let mut modmask = [0; 2];
+        modmask.copy_from_slice(&buffer[..2]);
+        let modmask = u16::from_le_bytes(modmask).into();
+
+        let mut keycode = [0; 1];
+        keycode.copy_from_slice(&buffer[2..3]);
+        let keycode = u8::from_le_bytes(keycode).into();
+
+        Ok(Key { modmask, keycode })
+    }
+}
+
+impl Encode for Key {
+    type Error = EncodeError;
+
+    fn encode_to(&self, buffer: &mut [u8]) -> Result<(), Self::Error> {
+        if buffer.len() < self.encoded_size() {
+            return Err(EncodeError::BufferSize);
+        }
+
+        buffer[0..2].copy_from_slice(&u16::from(self.modmask).to_le_bytes());
+        buffer[2..3].copy_from_slice(&u8::from(self.keycode).to_le_bytes());
+
+        Ok(())
+    }
+
+    fn encoded_size(&self) -> usize {
+        3
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModMask(u16);
 
 impl ModMask {
@@ -49,17 +87,10 @@ impl From<ModMask> for u16 {
     }
 }
 
-impl From<ModMask> for i32 {
+impl From<u16> for ModMask {
     #[inline]
-    fn from(input: ModMask) -> Self {
-        i32::from(input.0)
-    }
-}
-
-impl From<i32> for ModMask {
-    #[inline]
-    fn from(input: i32) -> Self {
-        Self(input as u16)
+    fn from(input: u16) -> Self {
+        Self(input)
     }
 }
 
@@ -77,7 +108,7 @@ impl BitOrAssign for ModMask {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Keycode(u8);
 
 #[allow(non_upper_case_globals)]
