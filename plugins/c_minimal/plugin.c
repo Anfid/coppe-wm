@@ -8,8 +8,6 @@ extern int32_t event_len();
 const uint32_t EVENT_KEY_PRESS_ID = 1;
 const uint32_t EVENT_KEY_RELEASE_ID = 2;
 
-const char id[] = "c_minimal";
-
 void int32_to_le(int32_t i, uint8_t* buf) {
     buf[0] = (uint8_t)(i & 0x000000ff);
     buf[1] = (uint8_t)(i & 0x0000ff00);

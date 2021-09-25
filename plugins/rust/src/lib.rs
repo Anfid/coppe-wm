@@ -3,11 +3,9 @@ use coppe_std::event::{self, Event, SubscriptionEvent};
 use coppe_std::key::{Key, Keycode, ModMask};
 
 #[no_mangle]
-pub static id: [u8; 10] = *b"rust_demo\0";
-
-#[no_mangle]
 pub extern "C" fn init() {
-    let mut sub_buffer = [0; 15];
+    let mut sub_buffer = [0; 7];
+
     SubscriptionEvent::key_press(Key::new(ModMask::M4, Keycode::Return))
         .init_without_filters(&mut sub_buffer)
         .unwrap()

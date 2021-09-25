@@ -8,7 +8,7 @@ use std::{
     io::Read,
     sync::{mpsc, Arc},
 };
-use wasmer::{Array, Instance, Module, NativeFunc, Store, Val, WasmPtr};
+use wasmer::{Instance, Module, NativeFunc, Store};
 
 use super::imports;
 use super::sub_mgr::SubscriptionManager;
@@ -44,6 +44,12 @@ impl From<String> for PluginId {
     }
 }
 
+impl From<&str> for PluginId {
+    fn from(id: &str) -> Self {
+        Self(id.to_string())
+    }
+}
+
 impl PartialEq<&str> for PluginId {
     fn eq(&self, other: &&str) -> bool {
         &self.0 == other
@@ -74,16 +80,25 @@ impl PluginManager {
             })
             .unwrap();
 
-        let imports = imports::import_objects(
-            &self.store,
-            self.command_tx.clone(),
-            self.subscriptions.clone(),
-            self.events.clone(),
-            state.clone(),
-        );
-
         for plugin_dir_entry in std::fs::read_dir(&plugin_dir).unwrap() {
             let path = plugin_dir_entry.unwrap().path();
+
+            let id: PluginId =
+                if let Some(plugin_name) = path.file_stem().and_then(|stem| stem.to_str()) {
+                    plugin_name.into()
+                } else {
+                    continue;
+                };
+
+            let imports = imports::import_objects(
+                id.clone(),
+                &self.store,
+                self.command_tx.clone(),
+                self.subscriptions.clone(),
+                self.events.clone(),
+                state.clone(),
+            );
+
             info!("Trying to initialize {}", path.to_string_lossy());
 
             let mut file = File::open(&path).unwrap();
@@ -104,33 +119,6 @@ impl PluginManager {
                     warn!("Plugin '{}' is incompatible: {}", path.to_string_lossy(), e);
                     continue;
                 }
-            };
-
-            let id: Option<String> = instance
-                .exports
-                .get_global("id")
-                .ok()
-                .map(|g| g.get())
-                .and_then(|val| {
-                    if let Val::I32(val) = val {
-                        Some(val as u32)
-                    } else {
-                        None
-                    }
-                })
-                .map(|offset| WasmPtr::new(offset))
-                .and_then(|ptr: WasmPtr<u8, Array>| {
-                    ptr.get_utf8_string_with_nul(&instance.exports.get_memory("memory").unwrap())
-                });
-
-            let id = if let Some(id) = id {
-                id.into()
-            } else {
-                warn!(
-                    "Plugin '{}' global 'id' could not be parsed",
-                    path.to_string_lossy()
-                );
-                continue;
             };
 
             if let Ok(init) = instance.exports.get_native_function::<(), ()>("init") {

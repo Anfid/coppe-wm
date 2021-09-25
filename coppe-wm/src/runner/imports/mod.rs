@@ -8,10 +8,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{mpsc::SyncSender, Arc},
 };
-use wasmer::{
-    imports, Array, Function, Global, ImportObject, LazyInit, Memory, Store, Val, WasmPtr,
-    WasmerEnv,
-};
+use wasmer::{imports, Array, Function, ImportObject, LazyInit, Memory, Store, WasmPtr, WasmerEnv};
 use x11rb::protocol::xproto::ConfigureWindowAux;
 
 use super::plug_mgr::PluginId;
@@ -21,65 +18,31 @@ use crate::state::State;
 
 #[derive(WasmerEnv, Clone)]
 struct StateEnv {
+    id: PluginId,
     wm_state: State,
     conn: SyncSender<Command>,
     #[wasmer(export)]
     memory: LazyInit<Memory>,
-    #[wasmer(export)]
-    id: LazyInit<Global>,
 }
 
 #[derive(WasmerEnv, Clone)]
 struct SubEnv {
+    id: PluginId,
     subscriptions: Arc<RwLock<SubscriptionManager>>,
     #[wasmer(export)]
     memory: LazyInit<Memory>,
-    #[wasmer(export)]
-    id: LazyInit<Global>,
 }
 
 #[derive(WasmerEnv, Clone)]
 struct EventEnv {
+    id: PluginId,
     events: Arc<RwLock<HashMap<PluginId, Mutex<VecDeque<Event>>>>>,
     #[wasmer(export)]
     memory: LazyInit<Memory>,
-    #[wasmer(export)]
-    id: LazyInit<Global>,
-}
-
-fn read_id(id: Option<&Global>, mem: &Memory) -> Option<PluginId> {
-    id.map(|g| g.get())
-        .and_then(|val| {
-            if let Val::I32(val) = val {
-                Some(val as u32)
-            } else {
-                None
-            }
-        })
-        .map(|offset| WasmPtr::new(offset))
-        .and_then(|ptr: WasmPtr<u8, Array>| ptr.get_utf8_string_with_nul(mem))
-        .map(Into::into)
-}
-
-impl StateEnv {
-    fn read_id(&self) -> Option<PluginId> {
-        read_id(self.id_ref(), self.memory_ref().unwrap())
-    }
-}
-
-impl SubEnv {
-    fn read_id(&self) -> Option<PluginId> {
-        read_id(self.id_ref(), self.memory_ref().unwrap())
-    }
-}
-
-impl EventEnv {
-    fn read_id(&self) -> Option<PluginId> {
-        read_id(self.id_ref(), self.memory_ref().unwrap())
-    }
 }
 
 pub(super) fn import_objects(
+    plugin_id: PluginId,
     store: &Store,
     conn: SyncSender<Command>,
     subscriptions: Arc<RwLock<SubscriptionManager>>,
@@ -87,20 +50,20 @@ pub(super) fn import_objects(
     state: State,
 ) -> ImportObject {
     let state_env = StateEnv {
+        id: plugin_id.clone(),
         conn: conn.clone(),
         wm_state: state,
         memory: Default::default(),
-        id: Default::default(),
     };
     let sub_env = SubEnv {
+        id: plugin_id.clone(),
         subscriptions,
         memory: Default::default(),
-        id: Default::default(),
     };
     let event_env = EventEnv {
+        id: plugin_id.clone(),
         events,
         memory: Default::default(),
-        id: Default::default(),
     };
 
     imports! {
@@ -152,17 +115,16 @@ unsafe fn write_to_ptr(
 /// * `<event_payload: dword array>` - size and fields expected depend on `event_id`, see [EncodedEvent];
 /// * `[event_filter: <event_filter_id: dword>, <event_filter_payload: dword array>]`;
 fn subscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i32 {
-    env.read_id()
-        .ok_or(ErrorCode::UnableToGetId)
-        .and_then(|id| {
-            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
+    env.memory_ref()
+        .ok_or(ErrorCode::UnableToGetMemory)
+        .and_then(|memory| {
             let event = event_ptr
                 .deref(memory, 0, event_len)
                 .ok_or(ErrorCode::BadArgument)?;
             let event: Vec<u8> = event.into_iter().map(|cell| cell.get()).collect();
             let sub = Subscription::decode(event.as_ref()).map_err(|_| ErrorCode::BadArgument)?;
-            info!("{}: subscribe to {:?}", id, sub);
-            env.subscriptions.write().subscribe(id, sub);
+            info!("{}: subscribe to {:?}", env.id, sub);
+            env.subscriptions.write().subscribe(env.id.clone(), sub);
             Ok(())
         })
         .err()
@@ -179,17 +141,16 @@ fn subscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i32
 /// * `<event_payload: dword array>` - size and fields expected depend on `event_id`, see [EncodedEvent];
 /// * `[event_filter: <event_filter_id: dword>, <event_filter_payload: dword array>]`;
 fn unsubscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i32 {
-    env.read_id()
-        .ok_or(ErrorCode::UnableToGetId)
-        .and_then(|id| {
-            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
+    env.memory_ref()
+        .ok_or(ErrorCode::UnableToGetMemory)
+        .and_then(|memory| {
             let event = event_ptr
                 .deref(memory, 0, event_len)
                 .ok_or(ErrorCode::BadArgument)?;
             let event: Vec<u8> = event.into_iter().map(|cell| cell.get()).collect();
             let sub = Subscription::decode(event.as_ref()).map_err(|_| ErrorCode::BadArgument)?;
-            info!("{}: unsubscribe from {:?}", id, sub);
-            env.subscriptions.write().unsubscribe(&id, &sub);
+            info!("{}: unsubscribe from {:?}", env.id, sub);
+            env.subscriptions.write().unsubscribe(&env.id, &sub);
             Ok(())
         })
         .err()
@@ -200,13 +161,11 @@ fn unsubscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i
 /// If dwords are read to end, event is removed from queue. This will happen even if first dwords were never read.
 fn event_read(env: &EventEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32, read_offset: u32) -> i32 {
     let res = env
-        .read_id()
-        .ok_or(ErrorCode::UnableToGetId)
-        .and_then(|id| {
-            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
-
+        .memory_ref()
+        .ok_or(ErrorCode::UnableToGetMemory)
+        .and_then(|memory| {
             let events = env.events.read();
-            let plugin_events = if let Some(e) = events.get(&id) {
+            let plugin_events = if let Some(e) = events.get(&env.id) {
                 e
             } else {
                 return Ok(0);
@@ -226,7 +185,7 @@ fn event_read(env: &EventEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32, read_of
 
             info!(
                 "{}: event_read; Response: {:?}, {} dwords",
-                id, event, read_len
+                env.id, event, read_len
             );
 
             // Pop event if it was read to end
@@ -245,43 +204,35 @@ fn event_read(env: &EventEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32, read_of
 
 /// Query the size of next event.
 ///
-/// Returns size of next event or 0 if no event is in queue or error code.
-fn event_len(env: &EventEnv) -> i32 {
-    let res = env.read_id().ok_or(ErrorCode::UnableToGetId).map(|id| {
-        let events = env.events.read();
-        events
-            .get(&id)
-            .map(|plugin_events| {
-                let plugin_events = plugin_events.lock();
+/// Returns size of next event or 0 if no event is in queue.
+fn event_len(env: &EventEnv) -> u32 {
+    let events = env.events.read();
+    events
+        .get(&env.id)
+        .map(|plugin_events| {
+            let plugin_events = plugin_events.lock();
 
-                let size = plugin_events
-                    .front()
-                    .map(|event| event.encoded_size())
-                    .unwrap_or(0);
-                info!("{}: event_len; Response: {}", id, size);
-                size as i32
-            })
-            .unwrap_or(0)
-    });
-
-    match res {
-        Ok(v) => v as i32,
-        Err(v) => v as i32,
-    }
+            let size = plugin_events
+                .front()
+                .map(|event| event.encoded_size())
+                .unwrap_or(0);
+            info!("{}: event_len; Response: {}", env.id, size);
+            size as u32
+        })
+        .unwrap_or(0)
 }
 
 /// Print debug message to logs. Returns 0 on success and error code on failure.
 fn debug_log(env: &StateEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
-    env.read_id()
-        .ok_or(ErrorCode::UnableToGetId)
-        .and_then(|id| {
-            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
+    env.memory_ref()
+        .ok_or(ErrorCode::UnableToGetMemory)
+        .and_then(|memory| {
             let debug_string = unsafe {
                 cmd_ptr
                     .get_utf8_str(memory, cmd_len)
                     .ok_or(ErrorCode::BadArgument)?
             };
-            info!("{}: {}", id, debug_string);
+            info!("{}: {}", env.id, debug_string);
             Ok(())
         })
         .err()
@@ -292,11 +243,9 @@ fn debug_log(env: &StateEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
 /// between subsequent reads.
 fn clients_read(env: &StateEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32) -> i32 {
     let res = env
-        .read_id()
-        .ok_or(ErrorCode::UnableToGetId)
-        .and_then(|id| {
-            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
-
+        .memory_ref()
+        .ok_or(ErrorCode::UnableToGetMemory)
+        .and_then(|memory| {
             let state = env.wm_state.get();
             let buffer: Vec<u8> = state
                 .clients
@@ -309,7 +258,7 @@ fn clients_read(env: &StateEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32) -> i3
 
             info!(
                 "{}: clients_read; Response: {:?}, {} bytes",
-                id,
+                env.id,
                 &buffer[..read_len],
                 read_len
             );
@@ -327,46 +276,34 @@ fn clients_read(env: &StateEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32) -> i3
 /// between subsequent reads.
 ///
 /// FIXME: this must be consistent for next reads. Potential fix is global state lock.
-fn clients_size(env: &StateEnv) -> i32 {
-    let res = env.read_id().ok_or(ErrorCode::UnableToGetId).map(|id| {
-        let state = env.wm_state.get();
-        let size: usize = state.clients.iter().map(|c| c.encoded_size()).sum();
+fn clients_size(env: &StateEnv) -> u32 {
+    let state = env.wm_state.get();
+    let size: usize = state.clients.iter().map(|c| c.encoded_size()).sum();
 
-        info!("{}: clients_size; Response: {} bytes", id, size);
+    info!("{}: clients_size; Response: {} bytes", env.id, size);
 
-        size
-    });
-
-    match res {
-        Ok(v) => v as i32,
-        Err(v) => v as i32,
-    }
+    size as u32
 }
 
 fn move_window(env: &StateEnv, window_id: u32, x: i32, y: i32) -> i32 {
-    env.read_id()
-        .ok_or(ErrorCode::UnableToGetId)
-        .and_then(|id| {
-            info!("{}: move_window {} to [{}, {}]", id, window_id, x, y);
-            let aux = ConfigureWindowAux::default().x(x).y(y);
+    info!("{}: move_window {} to [{}, {}]", env.id, window_id, x, y);
+    let aux = ConfigureWindowAux::default().x(x).y(y);
 
-            env.conn
-                .send(Command::ConfigureWindow(aux))
-                .map_err(|_| ErrorCode::Send)
-        })
+    env.conn
+        .send(Command::ConfigureWindow(aux))
+        .map_err(|_| ErrorCode::Send)
         .err()
         .unwrap_or(ErrorCode::Ok) as i32
 }
 
 fn spawn(env: &StateEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
-    env.read_id()
-        .ok_or(ErrorCode::UnableToGetId)
-        .and_then(|id| {
-            let memory = env.memory_ref().ok_or(ErrorCode::UnableToGetMemory)?;
+    env.memory_ref()
+        .ok_or(ErrorCode::UnableToGetMemory)
+        .and_then(|memory| {
             let cmd_string = cmd_ptr
                 .get_utf8_string(memory, cmd_len)
                 .ok_or(ErrorCode::BadArgument)?;
-            info!("{}: spawn '{}'", id, cmd_string);
+            info!("{}: spawn '{}'", env.id, cmd_string);
             shlex::split(&cmd_string).ok_or(ErrorCode::BadArgument)
         })
         .and_then(|cmd_args| {
@@ -387,12 +324,10 @@ fn spawn(env: &StateEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
 /// Core API call error codes.
 #[derive(Debug)]
 enum ErrorCode {
-    /// Plugin could not be identified.
-    UnableToGetId = -128,
     /// Plugin memory could not be accessed
-    UnableToGetMemory = -127,
+    UnableToGetMemory = -128,
     /// Internal command send error.
-    Send = -126,
+    Send = -127,
     /// Invalid argument provided.
     BadArgument = -2,
     /// Command execution error.

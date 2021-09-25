@@ -44,8 +44,8 @@ impl Decode for Event {
         let id = u32::from_le_bytes(id);
 
         match id {
-            id::KEY_PRESS => Key::decode(&buffer[4..]).map(Event::KeyRelease),
-            id::KEY_RELEASE => Key::decode(&buffer[4..]).map(Event::KeyPress),
+            id::KEY_PRESS => Key::decode(&buffer[4..]).map(Event::KeyPress),
+            id::KEY_RELEASE => Key::decode(&buffer[4..]).map(Event::KeyRelease),
             _ => Err(DecodeError::BadFormat),
         }
     }

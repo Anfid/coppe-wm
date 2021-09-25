@@ -8,7 +8,7 @@ DESTDIR := $(ROOTDIR)$(PREFIX)
 bindir := $(DESTDIR)/bin
 sharedir := $(DESTDIR)/share
 
-RUST_LOG ?= coppe_wm
+RUST_LOG ?= coppe_wm=info
 export RUST_LOG
 
 help:

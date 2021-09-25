@@ -29,7 +29,7 @@ impl SubscriptionEvent {
     }
 
     pub fn key_release(key: Key) -> SubscriptionEvent {
-        Self(CommonEvent::key_release(key))
+        Self(CommonEvent::KeyRelease(key))
     }
 
     pub fn init_without_filters(self, buffer: &mut [u8]) -> Result<Subscription, EncodeError> {
