@@ -1,4 +1,4 @@
-use coppe_common::event::Event;
+use coppe_common::event::SubscriptionEvent;
 use log::*;
 use x11rb::connection::Connection;
 use x11rb::errors::{ReplyError, ReplyOrIdError};
@@ -51,9 +51,15 @@ impl WindowManager {
         Ok(())
     }
 
-    fn handle_subscribe(&mut self, conn: &X11Conn, sub: Event) -> Result<(), ReplyOrIdError> {
+    fn handle_subscribe(
+        &mut self,
+        conn: &X11Conn,
+        sub: SubscriptionEvent,
+    ) -> Result<(), ReplyOrIdError> {
+        use SubscriptionEvent::*;
+
         match sub {
-            Event::KeyPress(key) | Event::KeyRelease(key) => {
+            KeyPress(key) | KeyRelease(key) => {
                 conn.grab_key(
                     true,
                     conn.setup().roots[self.screen_num].root,
@@ -63,6 +69,7 @@ impl WindowManager {
                     GrabMode::ASYNC,
                 )?;
             }
+            ClientAdd | ClientRemove => {}
         }
         Ok(())
     }
@@ -73,8 +80,7 @@ impl WindowManager {
         event: UnmapNotifyEvent,
     ) -> Result<(), ReplyError> {
         let conn = conn;
-        let mut state = self.state.get_mut();
-        state.clients.retain(|client| {
+        self.state.clients.retain(|client| {
             if client.id != event.window {
                 true
             } else {
@@ -112,11 +118,11 @@ impl WindowManager {
     }
 
     fn handle_configure_notify(&mut self, event: ConfigureNotifyEvent) -> Result<(), ReplyError> {
-        if let Some(mut client) = self.state.get_client_by_id_mut(event.window) {
-            client.x = event.x;
-            client.y = event.y;
-            client.width = event.width;
-            client.height = event.height;
+        if let Some(client) = self.state.get_client_by_id_mut(event.window) {
+            client.geometry.x = event.x;
+            client.geometry.y = event.y;
+            client.geometry.width = event.width;
+            client.geometry.height = event.height;
         }
 
         Ok(())
@@ -169,12 +175,12 @@ impl WindowManager {
             if let Some(client) = self.state.get_client_by_id(event.child) {
                 debug!(
                     "Entered ClientMove mode with {} {}",
-                    event.root_x - client.x,
-                    event.root_y - client.y
+                    event.root_x - client.geometry.x,
+                    event.root_y - client.geometry.y
                 );
                 self.mode = super::WmMode::ClientMove {
-                    x: event.root_x - client.x,
-                    y: event.root_y - client.y,
+                    x: event.root_x - client.geometry.x,
+                    y: event.root_y - client.geometry.y,
                     client_id: client.id,
                 };
             }

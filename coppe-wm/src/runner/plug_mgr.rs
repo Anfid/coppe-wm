@@ -13,7 +13,6 @@ use wasmer::{Instance, Module, NativeFunc, Store};
 use super::imports;
 use super::sub_mgr::SubscriptionManager;
 use crate::events::{Command, WmEvent};
-use crate::state::State;
 
 pub struct PluginManager {
     store: Store,
@@ -63,7 +62,7 @@ impl Display for PluginId {
 }
 
 impl PluginManager {
-    pub fn init(&mut self, state: State) {
+    pub fn init(&mut self) {
         let plugin_dir = std::env::var("XDG_CONFIG_HOME")
             .map(|path| {
                 let mut path = std::path::PathBuf::from(path);
@@ -96,7 +95,6 @@ impl PluginManager {
                 self.command_tx.clone(),
                 self.subscriptions.clone(),
                 self.events.clone(),
-                state.clone(),
             );
 
             info!("Trying to initialize {}", path.to_string_lossy());

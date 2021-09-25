@@ -5,7 +5,8 @@ use coppe_common::{
     event::Event as CommonEvent,
 };
 
-pub use coppe_common::event::id;
+pub use coppe_common::client::{Client, ClientGeometry, ClientId};
+pub use coppe_common::event::{id, SubscriptionEvent};
 
 pub struct Subscription<'a> {
     buffer: &'a [u8],
@@ -19,54 +20,49 @@ impl<'a> Subscription<'a> {
     pub fn unsubscribe(&self) {
         ffi::unsubscribe(self.buffer)
     }
+
+    pub fn from_raw_buffer(buffer: &'a [u8]) -> Self {
+        Self { buffer }
+    }
 }
 
-pub struct SubscriptionEvent(CommonEvent);
+pub trait SubscriptionEventExt {
+    fn key_press(key: Key) -> SubscriptionEvent;
+    fn key_release(key: Key) -> SubscriptionEvent;
+    fn client_add() -> SubscriptionEvent;
+    fn client_remove() -> SubscriptionEvent;
+    fn init_without_filters(self, buffer: &mut [u8]) -> Result<Subscription, EncodeError>;
+}
 
-impl SubscriptionEvent {
-    pub fn key_press(key: Key) -> SubscriptionEvent {
-        Self(CommonEvent::KeyPress(key))
+impl SubscriptionEventExt for SubscriptionEvent {
+    fn key_press(key: Key) -> SubscriptionEvent {
+        SubscriptionEvent::KeyPress(key)
     }
 
-    pub fn key_release(key: Key) -> SubscriptionEvent {
-        Self(CommonEvent::KeyRelease(key))
+    fn key_release(key: Key) -> SubscriptionEvent {
+        SubscriptionEvent::KeyRelease(key)
     }
 
-    pub fn init_without_filters(self, buffer: &mut [u8]) -> Result<Subscription, EncodeError> {
-        self.0.encode_to(buffer)?;
+    fn client_add() -> SubscriptionEvent {
+        SubscriptionEvent::ClientAdd
+    }
+
+    fn client_remove() -> SubscriptionEvent {
+        SubscriptionEvent::ClientRemove
+    }
+
+    fn init_without_filters(self, buffer: &mut [u8]) -> Result<Subscription, EncodeError> {
+        self.encode_to(buffer)?;
 
         Ok(Subscription { buffer })
-    }
-
-    pub fn from_raw_buffer(buffer: &[u8]) -> Subscription {
-        Subscription { buffer }
-    }
-
-    pub fn id(&self) -> u32 {
-        use CommonEvent::*;
-
-        match self.0 {
-            KeyPress(_) => id::KEY_PRESS,
-            KeyRelease(_) => id::KEY_RELEASE,
-        }
-    }
-}
-
-impl Encode for SubscriptionEvent {
-    type Error = <CommonEvent as Encode>::Error;
-
-    fn encode_to(&self, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.0.encode_to(buffer)
-    }
-
-    fn encoded_size(&self) -> usize {
-        self.0.encoded_size()
     }
 }
 
 pub enum Event {
     KeyPress(ModMask, Keycode),
     KeyRelease(ModMask, Keycode),
+    ClientAdd(ClientId),
+    ClientRemove(ClientId),
 }
 
 impl From<CommonEvent> for Event {
@@ -74,6 +70,8 @@ impl From<CommonEvent> for Event {
         match event {
             CommonEvent::KeyPress(key) => Event::KeyPress(key.modmask, key.keycode),
             CommonEvent::KeyRelease(key) => Event::KeyRelease(key.modmask, key.keycode),
+            CommonEvent::ClientAdd(client) => Event::ClientAdd(client),
+            CommonEvent::ClientRemove(client) => Event::ClientRemove(client),
         }
     }
 }

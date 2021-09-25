@@ -2,18 +2,20 @@ use coppe_common::client::Client as CommonClient;
 use std::ops::{Deref, DerefMut};
 use x11rb::protocol::xproto::*;
 
+pub use coppe_common::client::{ClientGeometry, ClientId};
+
 #[derive(Debug, Clone, Copy)]
 pub struct Client(CommonClient);
 
 impl Client {
     pub fn new(id: Window, geom: &GetGeometryReply) -> Self {
-        Self(CommonClient {
-            id,
+        let geometry = ClientGeometry {
             x: geom.x,
             y: geom.y,
             width: geom.width,
             height: geom.height,
-        })
+        };
+        Self(CommonClient { id, geometry })
     }
 }
 

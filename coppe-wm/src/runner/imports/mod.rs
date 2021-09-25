@@ -14,12 +14,10 @@ use x11rb::protocol::xproto::ConfigureWindowAux;
 use super::plug_mgr::PluginId;
 use super::sub_mgr::SubscriptionManager;
 use crate::events::{Command, Subscription};
-use crate::state::State;
 
 #[derive(WasmerEnv, Clone)]
-struct StateEnv {
+struct CmdEnv {
     id: PluginId,
-    wm_state: State,
     conn: SyncSender<Command>,
     #[wasmer(export)]
     memory: LazyInit<Memory>,
@@ -47,12 +45,10 @@ pub(super) fn import_objects(
     conn: SyncSender<Command>,
     subscriptions: Arc<RwLock<SubscriptionManager>>,
     events: Arc<RwLock<HashMap<PluginId, Mutex<VecDeque<Event>>>>>,
-    state: State,
 ) -> ImportObject {
-    let state_env = StateEnv {
+    let cmd_env = CmdEnv {
         id: plugin_id.clone(),
         conn: conn.clone(),
-        wm_state: state,
         memory: Default::default(),
     };
     let sub_env = SubEnv {
@@ -72,11 +68,9 @@ pub(super) fn import_objects(
             "unsubscribe" => Function::new_native_with_env(store, sub_env.clone(), unsubscribe),
             "event_read" => Function::new_native_with_env(store, event_env.clone(), event_read),
             "event_len" => Function::new_native_with_env(store, event_env.clone(), event_len),
-            "clients_read" => Function::new_native_with_env(store, state_env.clone(), clients_read),
-            "clients_size" => Function::new_native_with_env(store, state_env.clone(), clients_size),
-            "debug_log" => Function::new_native_with_env(store, state_env.clone(), debug_log),
-            "move_window" => Function::new_native_with_env(store, state_env.clone(), move_window),
-            "spawn" => Function::new_native_with_env(store, state_env.clone(), spawn),
+            "debug_log" => Function::new_native_with_env(store, cmd_env.clone(), debug_log),
+            "move_window" => Function::new_native_with_env(store, cmd_env.clone(), move_window),
+            "spawn" => Function::new_native_with_env(store, cmd_env.clone(), spawn),
         }
     }
 }
@@ -223,7 +217,7 @@ fn event_len(env: &EventEnv) -> u32 {
 }
 
 /// Print debug message to logs. Returns 0 on success and error code on failure.
-fn debug_log(env: &StateEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
+fn debug_log(env: &CmdEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
     env.memory_ref()
         .ok_or(ErrorCode::UnableToGetMemory)
         .and_then(|memory| {
@@ -239,53 +233,7 @@ fn debug_log(env: &StateEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
         .unwrap_or(ErrorCode::Ok) as i32
 }
 
-/// Read current client info. Since changes to clients can be made by any plugin, it is not guranteed to be persistent
-/// between subsequent reads.
-fn clients_read(env: &StateEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32) -> i32 {
-    let res = env
-        .memory_ref()
-        .ok_or(ErrorCode::UnableToGetMemory)
-        .and_then(|memory| {
-            let state = env.wm_state.get();
-            let buffer: Vec<u8> = state
-                .clients
-                .iter()
-                .map(|c| c.encode_to_vec().unwrap())
-                .flatten()
-                .collect();
-
-            let read_len = unsafe { write_to_ptr(buffer.as_ref(), memory, buf_ptr, buf_len, 0) }?;
-
-            info!(
-                "{}: clients_read; Response: {:?}, {} bytes",
-                env.id,
-                &buffer[..read_len],
-                read_len
-            );
-
-            Ok(read_len)
-        });
-
-    match res {
-        Ok(v) => v as i32,
-        Err(v) => v as i32,
-    }
-}
-
-/// Client info size hint. Since changes to clients can be made by any plugin, it is not guranteed to be persistent
-/// between subsequent reads.
-///
-/// FIXME: this must be consistent for next reads. Potential fix is global state lock.
-fn clients_size(env: &StateEnv) -> u32 {
-    let state = env.wm_state.get();
-    let size: usize = state.clients.iter().map(|c| c.encoded_size()).sum();
-
-    info!("{}: clients_size; Response: {} bytes", env.id, size);
-
-    size as u32
-}
-
-fn move_window(env: &StateEnv, window_id: u32, x: i32, y: i32) -> i32 {
+fn move_window(env: &CmdEnv, window_id: u32, x: i32, y: i32) -> i32 {
     info!("{}: move_window {} to [{}, {}]", env.id, window_id, x, y);
     let aux = ConfigureWindowAux::default().x(x).y(y);
 
@@ -296,7 +244,7 @@ fn move_window(env: &StateEnv, window_id: u32, x: i32, y: i32) -> i32 {
         .unwrap_or(ErrorCode::Ok) as i32
 }
 
-fn spawn(env: &StateEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
+fn spawn(env: &CmdEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
     env.memory_ref()
         .ok_or(ErrorCode::UnableToGetMemory)
         .and_then(|memory| {

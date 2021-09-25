@@ -12,12 +12,13 @@ use x11rb::x11_utils::X11Error;
 use x11rb::CURRENT_TIME;
 
 mod handler;
+mod state;
 
 use crate::client::Client;
 use crate::events::{Command, WmEvent};
 use crate::layout::Geometry;
-use crate::state::State;
 use crate::X11Conn;
+use state::State;
 
 pub enum WmMode {
     Default,
@@ -54,7 +55,6 @@ impl WindowManager {
     pub fn init(
         conn: Arc<X11Conn>,
         screen_num: usize,
-        state: State,
         tx: mpsc::Sender<WmEvent>,
         command_rx: mpsc::Receiver<Command>,
     ) -> Result<Self, ReplyOrIdError> {
@@ -133,7 +133,7 @@ impl WindowManager {
         conn.close_font(font)?;
 
         Ok(WindowManager {
-            state,
+            state: Default::default(),
             screen_num,
             black_gc,
             pending_expose: HashSet::default(),
@@ -163,19 +163,18 @@ impl WindowManager {
     #[allow(unused)]
     pub fn focus_client(&mut self, conn: &X11Conn, rel_idx: i32) -> Result<(), ReplyError> {
         // TODO: Implement wrapping add and sub based on amount of clients
-        let idx = self.state.get().focused as i32 + rel_idx;
+        let idx = self.state.focused as i32 + rel_idx;
         //let idx: i32 = match direction {
         //    FocusDirection::Next => self.focused as i32 + 1,
         //    FocusDirection::Prev => self.focused as i32 - 1,
         //};
 
-        let state = self.state.get();
-        let win = if idx >= state.clients.len() as i32 {
-            state.clients[0].id
+        let win = if idx >= self.state.clients.len() as i32 {
+            self.state.clients[0].id
         } else if idx < 0 {
-            state.clients[state.clients.len() - 1].id
+            self.state.clients[self.state.clients.len() - 1].id
         } else {
-            state.clients[state.focused + 1].id
+            self.state.clients[self.state.focused + 1].id
         };
 
         let aux = ConfigureWindowAux::default().stack_mode(StackMode::ABOVE);
@@ -183,8 +182,6 @@ impl WindowManager {
         conn.configure_window(win, &aux)?;
 
         conn.set_input_focus(InputFocus::PARENT, win, CURRENT_TIME)?;
-
-        let state = self.state.get_mut();
 
         Ok(())
     }
@@ -221,7 +218,7 @@ impl WindowManager {
         assert!(self.state.get_client_by_id(win).is_none());
 
         let geometry: Geometry = geom.into();
-        let geom_reply = self.state.get().layout.geometry(screen.into(), geometry);
+        let geom_reply = self.state.layout.geometry(screen.into(), geometry);
 
         let aux = ConfigureWindowAux::default()
             .x(i32::from(geom_reply.x))
@@ -232,8 +229,7 @@ impl WindowManager {
         conn.configure_window(win, &aux)?;
         conn.map_window(win)?;
 
-        let mut state = self.state.get_mut();
-        state.clients.push(Client::new(win, geom));
+        self.state.clients.push(Client::new(win, geom));
 
         Ok(())
     }

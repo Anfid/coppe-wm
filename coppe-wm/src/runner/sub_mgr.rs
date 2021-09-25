@@ -1,4 +1,4 @@
-use coppe_common::event::{Event, Subscription, SubscriptionFilter};
+use coppe_common::event::{Subscription, SubscriptionEvent, SubscriptionFilter};
 use log::*;
 use std::{collections::HashMap, sync::mpsc::SyncSender};
 
@@ -7,7 +7,7 @@ use crate::events::{Command, WmEvent};
 
 #[derive(Debug)]
 pub struct SubscriptionManager {
-    subs: HashMap<Event, HashMap<PluginId, Vec<Vec<SubscriptionFilter>>>>,
+    subs: HashMap<SubscriptionEvent, HashMap<PluginId, Vec<Vec<SubscriptionFilter>>>>,
     conn: SyncSender<Command>,
 }
 
@@ -22,7 +22,7 @@ impl SubscriptionManager {
 
 impl SubscriptionManager {
     pub fn subscribers(&self, ev: &WmEvent) -> Vec<&PluginId> {
-        let sub = Event::from(ev.clone());
+        let sub: SubscriptionEvent = ev.into();
 
         self.subs
             .get(&sub)
