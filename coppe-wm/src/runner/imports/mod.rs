@@ -105,9 +105,9 @@ unsafe fn write_to_ptr(
 /// Expects a pointer to a buffer, describing event and it's optional filters.
 ///
 /// Event description buffer has the following format:
-/// * `<event_id: dword>` - see [events::id](crate::events::id);
-/// * `<event_payload: dword array>` - size and fields expected depend on `event_id`, see [EncodedEvent];
-/// * `[event_filter: <event_filter_id: dword>, <event_filter_payload: dword array>]`;
+/// * `<event_id: [byte; 4]>` - see [events::id](crate::events::id);
+/// * `<event_payload: byte array>` - size and contents depend on `event_id`, see [EncodedEvent];
+/// * `[event_filter: <event_filter_id: [byte; 4]>, <event_filter_payload: byte array>]`;
 fn subscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i32 {
     env.memory_ref()
         .ok_or(ErrorCode::UnableToGetMemory)
@@ -128,12 +128,12 @@ fn subscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i32
 /// Unsubscribe from a specific WM event.
 ///
 /// Expects a pointer to a buffer, describing event and it's optional filters. If no filters are
-/// passed, subscription for all matching events will be cancelled.
+/// passed, subscription for all matching events will be cancelled. Returns 0 on success or error code.
 ///
 /// Event description buffer has the following format:
-/// * `<event_id: dword>` - see [events::id](crate::events::id);
-/// * `<event_payload: dword array>` - size and fields expected depend on `event_id`, see [EncodedEvent];
-/// * `[event_filter: <event_filter_id: dword>, <event_filter_payload: dword array>]`;
+/// * `<event_id: [byte; 4]>` - see [events::id](crate::events::id);
+/// * `<event_payload: byte array>` - size and fields expected depend on `event_id`, see [EncodedEvent];
+/// * `[event_filter: <event_filter_id: [byte; 4]>, <event_filter_payload: byte array>]`;
 fn unsubscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i32 {
     env.memory_ref()
         .ok_or(ErrorCode::UnableToGetMemory)
@@ -151,8 +151,8 @@ fn unsubscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i
         .unwrap_or(ErrorCode::Ok) as i32
 }
 
-/// Read the next event. Returns number of read dwords or -1 if plugin id is unknown or writing to buffer is impossible.
-/// If dwords are read to end, event is removed from queue. This will happen even if first dwords were never read.
+/// Read the next event. Returns number of read bytes or -1 if plugin id is unknown or writing to buffer is impossible.
+/// If bytes are read to end, event is removed from queue. This will happen even if first bytes were never read.
 fn event_read(env: &EventEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32, read_offset: u32) -> i32 {
     let res = env
         .memory_ref()
@@ -198,7 +198,7 @@ fn event_read(env: &EventEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32, read_of
 
 /// Query the size of next event.
 ///
-/// Returns size of next event or 0 if no event is in queue.
+/// Returns size of next event in bytes or 0 if no event is in queue.
 fn event_len(env: &EventEnv) -> u32 {
     let events = env.events.read();
     events
@@ -216,7 +216,7 @@ fn event_len(env: &EventEnv) -> u32 {
         .unwrap_or(0)
 }
 
-/// Print debug message to logs. Returns 0 on success and error code on failure.
+/// Print debug message to logs. Returns 0 on success or error code.
 fn debug_log(env: &CmdEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
     env.memory_ref()
         .ok_or(ErrorCode::UnableToGetMemory)
