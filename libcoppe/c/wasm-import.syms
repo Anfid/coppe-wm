@@ -1,0 +1,12 @@
+subscribe
+unsubscribe
+event_read
+event_len
+debug_log
+window_move
+window_resize
+window_move_resize
+window_focus
+window_get_properties
+window_close
+spawn

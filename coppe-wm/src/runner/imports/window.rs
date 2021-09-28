@@ -1,6 +1,6 @@
 use log::*;
 use wasmer::WasmPtr;
-use x11rb::protocol::xproto::{ConfigureWindowAux, ConnectionExt, StackMode};
+use x11rb::protocol::xproto::*;
 
 use super::{ErrorCode, ValOrErrCode, XEnv};
 
@@ -105,19 +105,21 @@ pub(super) fn window_get_properties(
 
 pub(super) fn window_close(env: &XEnv, window_id: u32) -> i32 {
     info!("{}: window_close {}", env.id, window_id);
-    //{
-    //    let data = [self.atoms.WM_DELETE_WINDOW, 0, 0, 0, 0];
-    //    let event = ClientMessageEvent {
-    //        response_type: CLIENT_MESSAGE_EVENT,
-    //        format: 32,
-    //        sequence: 0,
-    //        window: client.id,
-    //        type_: self.atoms.WM_PROTOCOLS,
-    //        data: data.into(),
-    //    };
-    //    env.x11
-    //        .conn
-    //        .send_event(false, client.id, EventMask::NO_EVENT, &event)?;
-    //}
-    todo!()
+
+    let data = [env.x11.atoms.WM_DELETE_WINDOW, 0, 0, 0, 0];
+    let event = ClientMessageEvent {
+        response_type: CLIENT_MESSAGE_EVENT,
+        format: 32,
+        sequence: 0,
+        window: window_id,
+        type_: env.x11.atoms.WM_PROTOCOLS,
+        data: data.into(),
+    };
+
+    env.x11
+        .conn
+        .send_event(false, window_id, EventMask::NO_EVENT, &event)
+        .map_err(Into::<ErrorCode>::into)
+        .and_then(|cookie| cookie.check().map_err(Into::into))
+        .value_or_error_code()
 }
