@@ -1,20 +1,20 @@
-use crate::client::ClientId;
 use crate::encoding::{Decode, DecodeError, Encode, EncodeError};
 use crate::key::Key;
+use crate::window::WindowId;
 
 pub mod id {
     pub const KEY_PRESS: u32 = 1;
     pub const KEY_RELEASE: u32 = 2;
-    pub const CLIENT_ADD: u32 = 3;
-    pub const CLIENT_REMOVE: u32 = 4;
+    pub const WINDOW_ADD: u32 = 3;
+    pub const WINDOW_REMOVE: u32 = 4;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Event {
     KeyPress(Key),
     KeyRelease(Key),
-    ClientAdd(ClientId),
-    ClientRemove(ClientId),
+    WindowAdd(WindowId),
+    WindowRemove(WindowId),
 }
 
 impl Event {
@@ -32,8 +32,8 @@ impl Event {
         match self {
             KeyPress(_) => id::KEY_PRESS,
             KeyRelease(_) => id::KEY_RELEASE,
-            ClientAdd(_) => id::CLIENT_ADD,
-            ClientRemove(_) => id::CLIENT_REMOVE,
+            WindowAdd(_) => id::WINDOW_ADD,
+            WindowRemove(_) => id::WINDOW_REMOVE,
         }
     }
 }
@@ -53,8 +53,8 @@ impl Decode for Event {
         match id {
             id::KEY_PRESS => Key::decode(&buffer[4..]).map(Event::KeyPress),
             id::KEY_RELEASE => Key::decode(&buffer[4..]).map(Event::KeyRelease),
-            id::CLIENT_ADD => ClientId::decode(&buffer[4..]).map(Event::ClientAdd),
-            id::CLIENT_REMOVE => ClientId::decode(&buffer[4..]).map(Event::ClientRemove),
+            id::WINDOW_ADD => WindowId::decode(&buffer[4..]).map(Event::WindowAdd),
+            id::WINDOW_REMOVE => WindowId::decode(&buffer[4..]).map(Event::WindowRemove),
             _ => Err(DecodeError::BadFormat),
         }
     }
@@ -72,8 +72,8 @@ impl Encode for Event {
 
         match self {
             Self::KeyPress(key) | Self::KeyRelease(key) => key.encode_to(&mut buffer[4..]),
-            Self::ClientAdd(client) | Self::ClientRemove(client) => {
-                client.encode_to(&mut buffer[4..])
+            Self::WindowAdd(window) | Self::WindowRemove(window) => {
+                window.encode_to(&mut buffer[4..])
             }
         }
     }
@@ -81,7 +81,7 @@ impl Encode for Event {
     fn encoded_size(&self) -> usize {
         match self {
             Self::KeyPress(key) | Self::KeyRelease(key) => 4 + key.encoded_size(),
-            Self::ClientAdd(client) | Self::ClientRemove(client) => 4 + client.encoded_size(),
+            Self::WindowAdd(window) | Self::WindowRemove(window) => 4 + window.encoded_size(),
         }
     }
 }
@@ -90,8 +90,8 @@ impl Encode for Event {
 pub enum SubscriptionEvent {
     KeyPress(Key),
     KeyRelease(Key),
-    ClientAdd,
-    ClientRemove,
+    WindowAdd,
+    WindowRemove,
 }
 
 impl SubscriptionEvent {
@@ -100,8 +100,8 @@ impl SubscriptionEvent {
         match self {
             KeyPress(_) => id::KEY_PRESS,
             KeyRelease(_) => id::KEY_RELEASE,
-            ClientAdd => id::CLIENT_ADD,
-            ClientRemove => id::CLIENT_REMOVE,
+            WindowAdd => id::WINDOW_ADD,
+            WindowRemove => id::WINDOW_REMOVE,
         }
     }
 }
@@ -111,8 +111,8 @@ impl From<&Event> for SubscriptionEvent {
         match event {
             Event::KeyPress(key) => SubscriptionEvent::KeyPress(*key),
             Event::KeyRelease(key) => SubscriptionEvent::KeyRelease(*key),
-            Event::ClientAdd(_) => SubscriptionEvent::ClientAdd,
-            Event::ClientRemove(_) => SubscriptionEvent::ClientRemove,
+            Event::WindowAdd(_) => SubscriptionEvent::WindowAdd,
+            Event::WindowRemove(_) => SubscriptionEvent::WindowRemove,
         }
     }
 }
@@ -127,7 +127,7 @@ impl Encode for SubscriptionEvent {
 
         match self {
             KeyPress(key) | KeyRelease(key) => key.encode_to(&mut buffer[4..])?,
-            ClientAdd | ClientRemove => {}
+            WindowAdd | WindowRemove => {}
         }
 
         Ok(())
@@ -138,7 +138,7 @@ impl Encode for SubscriptionEvent {
 
         match self {
             KeyPress(key) | KeyRelease(key) => 4 + key.encoded_size(),
-            ClientAdd | ClientRemove => 4,
+            WindowAdd | WindowRemove => 4,
         }
     }
 }
@@ -154,8 +154,8 @@ impl Decode for SubscriptionEvent {
         match id {
             id::KEY_PRESS => Key::decode(&buffer[4..]).map(KeyPress),
             id::KEY_RELEASE => Key::decode(&buffer[4..]).map(KeyRelease),
-            id::CLIENT_ADD => Ok(ClientAdd),
-            id::CLIENT_REMOVE => Ok(ClientRemove),
+            id::WINDOW_ADD => Ok(WindowAdd),
+            id::WINDOW_REMOVE => Ok(WindowRemove),
             _ => Err(DecodeError::BadFormat),
         }
     }

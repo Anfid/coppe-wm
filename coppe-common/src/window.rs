@@ -1,14 +1,14 @@
 use crate::encoding::*;
 
-pub type ClientId = u32;
+pub type WindowId = u32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Client {
-    pub id: ClientId,
-    pub geometry: ClientGeometry,
+pub struct Window {
+    pub id: WindowId,
+    pub geometry: Geometry,
 }
 
-impl Encode for Client {
+impl Encode for Window {
     type Error = EncodeError;
 
     fn encode_to(&self, buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -22,25 +22,25 @@ impl Encode for Client {
     }
 }
 
-impl Decode for Client {
+impl Decode for Window {
     type Error = DecodeError;
 
     fn decode(buffer: &[u8]) -> Result<Self, Self::Error> {
-        let id = ClientId::decode(&buffer[0..])?;
-        let geometry = ClientGeometry::decode(&buffer[id.encoded_size()..])?;
+        let id = WindowId::decode(&buffer[0..])?;
+        let geometry = Geometry::decode(&buffer[id.encoded_size()..])?;
         Ok(Self { id, geometry })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ClientGeometry {
+pub struct Geometry {
     pub x: i16,
     pub y: i16,
     pub width: u16,
     pub height: u16,
 }
 
-impl Encode for ClientGeometry {
+impl Encode for Geometry {
     type Error = EncodeError;
 
     fn encode_to(&self, buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -55,7 +55,7 @@ impl Encode for ClientGeometry {
     }
 }
 
-impl Decode for ClientGeometry {
+impl Decode for Geometry {
     type Error = DecodeError;
 
     fn decode(buffer: &[u8]) -> Result<Self, Self::Error> {

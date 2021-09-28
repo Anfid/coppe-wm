@@ -1,6 +1,7 @@
 use coppe_std::command;
 use coppe_std::event::{self, Event, SubscriptionEvent};
 use coppe_std::key::{Key, Keycode, ModMask};
+use coppe_std::prelude::*;
 
 #[no_mangle]
 pub extern "C" fn init() {

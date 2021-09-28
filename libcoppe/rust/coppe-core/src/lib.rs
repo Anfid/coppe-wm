@@ -10,6 +10,6 @@ pub mod key {
     pub use coppe_common::key::*;
 }
 
-pub mod client {
-    pub use coppe_common::client::*;
+pub mod window {
+    pub use coppe_common::window::*;
 }

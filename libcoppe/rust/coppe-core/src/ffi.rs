@@ -6,10 +6,6 @@ pub(crate) mod raw {
         pub fn event_read(buf_ptr: *mut u8, buf_len: usize, offset: usize) -> isize;
         pub fn event_len() -> usize;
 
-        // State
-        pub fn clients_read(buf_ptr: *mut u8, buf_len: usize) -> isize;
-        pub fn clients_size() -> usize;
-
         // Commands
         pub fn spawn(cmd_ptr: *const u8, cmd_len: usize) -> i32;
         pub fn move_window(id: i32, x: i32, y: i32) -> i32;
@@ -37,14 +33,6 @@ pub fn event_read(buffer: &mut [u8], offset: usize) -> isize {
 
 pub fn event_len() -> usize {
     unsafe { raw::event_len() }
-}
-
-pub fn clients_read(buffer: &mut [u8]) -> isize {
-    unsafe { raw::clients_read(buffer.as_mut_ptr(), buffer.len()) }
-}
-
-pub fn clients_len() -> usize {
-    unsafe { raw::clients_size() }
 }
 
 pub fn spawn(command: &str) -> i32 {

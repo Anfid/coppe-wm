@@ -26,8 +26,8 @@ impl WmEvent {
                 })
                 .into(),
             ),
-            XEvent::MapRequest(event) => Some(Event::ClientAdd(event.window).into()),
-            XEvent::UnmapNotify(event) => Some(Event::ClientRemove(event.window).into()),
+            XEvent::MapRequest(event) => Some(Event::WindowAdd(event.window).into()),
+            XEvent::UnmapNotify(event) => Some(Event::WindowRemove(event.window).into()),
             // TODO
             XEvent::ConfigureNotify(_event) => None,
             _ => None,
