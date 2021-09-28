@@ -68,7 +68,7 @@ impl SubscriptionManager {
                             )
                             .unwrap();
                     }
-                    WindowAdd | WindowRemove => {}
+                    WindowAdd | WindowRemove | WindowConfigure => {}
                 }
                 let mut sub_desc = HashMap::new();
                 sub_desc.insert(id, vec![sub.filters]);
@@ -105,7 +105,7 @@ impl SubscriptionManager {
                             )
                             .unwrap();
                     }
-                    WindowAdd | WindowRemove => {}
+                    WindowAdd | WindowRemove | WindowConfigure => {}
                 }
                 self.subs.remove(&unsub.event);
             }

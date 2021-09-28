@@ -2,30 +2,40 @@ use coppe_std::debug::log;
 use coppe_std::event::{self, Event, SubscriptionEvent};
 use coppe_std::key::{Key, Keycode, ModMask};
 use coppe_std::prelude::*;
-use coppe_std::window::WindowId;
+use coppe_std::window::{Geometry, WindowId};
+use lazy_static::lazy_static;
+use std::collections::HashMap;
+use std::sync::Mutex;
 
-static mut WINDOWS: Vec<WindowId> = Vec::new();
+lazy_static! {
+    static ref WINDOWS: Mutex<HashMap<WindowId, Option<Geometry>>> = Mutex::new(HashMap::new());
+}
 
 #[no_mangle]
 pub extern "C" fn init() {
     let mut sub_buffer = [0; 7];
 
-    SubscriptionEvent::key_press(Key::new(ModMask::M4, Keycode::Z))
+    SubscriptionEvent::KeyPress(Key::new(ModMask::M4, Keycode::Z))
         .init_without_filters(&mut sub_buffer)
         .unwrap()
         .subscribe();
 
-    SubscriptionEvent::key_release(Key::new(ModMask::M4, Keycode::Z))
+    SubscriptionEvent::KeyRelease(Key::new(ModMask::M4, Keycode::Z))
         .init_without_filters(&mut sub_buffer)
         .unwrap()
         .subscribe();
 
-    SubscriptionEvent::window_add()
+    SubscriptionEvent::WindowAdd
         .init_without_filters(&mut sub_buffer)
         .unwrap()
         .subscribe();
 
-    SubscriptionEvent::window_remove()
+    SubscriptionEvent::WindowRemove
+        .init_without_filters(&mut sub_buffer)
+        .unwrap()
+        .subscribe();
+
+    SubscriptionEvent::WindowConfigure
         .init_without_filters(&mut sub_buffer)
         .unwrap()
         .subscribe();
@@ -44,11 +54,15 @@ pub extern "C" fn handle() {
             }
             Event::WindowAdd(id) => {
                 log(format!("New window: {}", id));
-                unsafe { WINDOWS.push(id) }
+                WINDOWS.lock().unwrap().insert(id, None);
             }
             Event::WindowRemove(id) => {
                 log(format!("Window removed: {}", id));
-                unsafe { WINDOWS.retain(|window| window != &id) }
+                WINDOWS.lock().unwrap().remove(&id);
+            }
+            Event::WindowConfigure(id, geometry) => {
+                log(format!("Window updated: {}, {:?}", id, geometry));
+                WINDOWS.lock().unwrap().insert(id, Some(geometry));
             }
             _ => {}
         }
@@ -56,5 +70,5 @@ pub extern "C" fn handle() {
 }
 
 fn list_windows() {
-    log(format!("{:?}", unsafe { &WINDOWS }))
+    log(format!("{:?}", WINDOWS.lock().unwrap()))
 }

@@ -7,12 +7,12 @@ use coppe_std::prelude::*;
 pub extern "C" fn init() {
     let mut sub_buffer = [0; 7];
 
-    SubscriptionEvent::key_press(Key::new(ModMask::M4, Keycode::Return))
+    SubscriptionEvent::KeyPress(Key::new(ModMask::M4, Keycode::Return))
         .init_without_filters(&mut sub_buffer)
         .unwrap()
         .subscribe();
 
-    SubscriptionEvent::key_press(Key::new(ModMask::M4, Keycode::X))
+    SubscriptionEvent::KeyPress(Key::new(ModMask::M4, Keycode::X))
         .init_without_filters(&mut sub_buffer)
         .unwrap()
         .subscribe();

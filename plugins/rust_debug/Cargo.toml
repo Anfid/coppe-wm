@@ -8,3 +8,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 coppe-std = { path = "../../libcoppe/rust/coppe-std" }
+lazy_static = "1.4"

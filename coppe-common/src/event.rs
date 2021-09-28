@@ -1,12 +1,13 @@
 use crate::encoding::{Decode, DecodeError, Encode, EncodeError};
 use crate::key::Key;
-use crate::window::WindowId;
+use crate::window::{Window, WindowId};
 
 pub mod id {
     pub const KEY_PRESS: u32 = 1;
     pub const KEY_RELEASE: u32 = 2;
     pub const WINDOW_ADD: u32 = 3;
     pub const WINDOW_REMOVE: u32 = 4;
+    pub const WINDOW_CONFIGURE: u32 = 5;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -15,17 +16,10 @@ pub enum Event {
     KeyRelease(Key),
     WindowAdd(WindowId),
     WindowRemove(WindowId),
+    WindowConfigure(Window),
 }
 
 impl Event {
-    pub fn key_press(key: Key) -> Self {
-        Self::KeyPress(key)
-    }
-
-    pub fn key_release(key: Key) -> Self {
-        Self::KeyRelease(key)
-    }
-
     pub fn id(&self) -> u32 {
         use Event::*;
 
@@ -34,6 +28,7 @@ impl Event {
             KeyRelease(_) => id::KEY_RELEASE,
             WindowAdd(_) => id::WINDOW_ADD,
             WindowRemove(_) => id::WINDOW_REMOVE,
+            WindowConfigure(_) => id::WINDOW_CONFIGURE,
         }
     }
 }
@@ -55,6 +50,7 @@ impl Decode for Event {
             id::KEY_RELEASE => Key::decode(&buffer[4..]).map(Event::KeyRelease),
             id::WINDOW_ADD => WindowId::decode(&buffer[4..]).map(Event::WindowAdd),
             id::WINDOW_REMOVE => WindowId::decode(&buffer[4..]).map(Event::WindowRemove),
+            id::WINDOW_CONFIGURE => Window::decode(&buffer[4..]).map(Event::WindowConfigure),
             _ => Err(DecodeError::BadFormat),
         }
     }
@@ -75,6 +71,7 @@ impl Encode for Event {
             Self::WindowAdd(window) | Self::WindowRemove(window) => {
                 window.encode_to(&mut buffer[4..])
             }
+            Self::WindowConfigure(window) => window.encode_to(&mut buffer[4..]),
         }
     }
 
@@ -82,6 +79,7 @@ impl Encode for Event {
         match self {
             Self::KeyPress(key) | Self::KeyRelease(key) => 4 + key.encoded_size(),
             Self::WindowAdd(window) | Self::WindowRemove(window) => 4 + window.encoded_size(),
+            Self::WindowConfigure(window) => 4 + window.encoded_size(),
         }
     }
 }
@@ -92,6 +90,7 @@ pub enum SubscriptionEvent {
     KeyRelease(Key),
     WindowAdd,
     WindowRemove,
+    WindowConfigure,
 }
 
 impl SubscriptionEvent {
@@ -102,6 +101,7 @@ impl SubscriptionEvent {
             KeyRelease(_) => id::KEY_RELEASE,
             WindowAdd => id::WINDOW_ADD,
             WindowRemove => id::WINDOW_REMOVE,
+            WindowConfigure => id::WINDOW_CONFIGURE,
         }
     }
 }
@@ -113,6 +113,7 @@ impl From<&Event> for SubscriptionEvent {
             Event::KeyRelease(key) => SubscriptionEvent::KeyRelease(*key),
             Event::WindowAdd(_) => SubscriptionEvent::WindowAdd,
             Event::WindowRemove(_) => SubscriptionEvent::WindowRemove,
+            Event::WindowConfigure(_) => SubscriptionEvent::WindowConfigure,
         }
     }
 }
@@ -127,7 +128,7 @@ impl Encode for SubscriptionEvent {
 
         match self {
             KeyPress(key) | KeyRelease(key) => key.encode_to(&mut buffer[4..])?,
-            WindowAdd | WindowRemove => {}
+            WindowAdd | WindowRemove | WindowConfigure => {}
         }
 
         Ok(())
@@ -138,7 +139,7 @@ impl Encode for SubscriptionEvent {
 
         match self {
             KeyPress(key) | KeyRelease(key) => 4 + key.encoded_size(),
-            WindowAdd | WindowRemove => 4,
+            WindowAdd | WindowRemove | WindowConfigure => 4,
         }
     }
 }
@@ -156,6 +157,7 @@ impl Decode for SubscriptionEvent {
             id::KEY_RELEASE => Key::decode(&buffer[4..]).map(KeyRelease),
             id::WINDOW_ADD => Ok(WindowAdd),
             id::WINDOW_REMOVE => Ok(WindowRemove),
+            id::WINDOW_CONFIGURE => Ok(WindowConfigure),
             _ => Err(DecodeError::BadFormat),
         }
     }

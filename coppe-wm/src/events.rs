@@ -1,6 +1,7 @@
 use coppe_common::{
     event::{Event, SubscriptionEvent},
     key::Key,
+    window::{Geometry, Window},
 };
 use x11rb::protocol::Event as XEvent;
 
@@ -28,8 +29,18 @@ impl WmEvent {
             ),
             XEvent::MapRequest(event) => Some(Event::WindowAdd(event.window).into()),
             XEvent::UnmapNotify(event) => Some(Event::WindowRemove(event.window).into()),
-            // TODO
-            XEvent::ConfigureNotify(_event) => None,
+            XEvent::ConfigureNotify(event) => Some(
+                Event::WindowConfigure(Window {
+                    id: event.window,
+                    geometry: Geometry {
+                        x: event.x,
+                        y: event.y,
+                        width: event.width,
+                        height: event.height,
+                    },
+                })
+                .into(),
+            ),
             _ => None,
         }
     }

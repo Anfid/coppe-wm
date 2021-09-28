@@ -1,5 +1,5 @@
 use crate::ffi;
-use crate::key::{Key, Keycode, ModMask};
+use crate::key::{Keycode, ModMask};
 use coppe_common::{
     encoding::{Decode, Encode, EncodeError},
     event::Event as CommonEvent,
@@ -27,30 +27,10 @@ impl<'a> Subscription<'a> {
 }
 
 pub trait SubscriptionEventExt {
-    fn key_press(key: Key) -> SubscriptionEvent;
-    fn key_release(key: Key) -> SubscriptionEvent;
-    fn window_add() -> SubscriptionEvent;
-    fn window_remove() -> SubscriptionEvent;
     fn init_without_filters(self, buffer: &mut [u8]) -> Result<Subscription, EncodeError>;
 }
 
 impl SubscriptionEventExt for SubscriptionEvent {
-    fn key_press(key: Key) -> SubscriptionEvent {
-        SubscriptionEvent::KeyPress(key)
-    }
-
-    fn key_release(key: Key) -> SubscriptionEvent {
-        SubscriptionEvent::KeyRelease(key)
-    }
-
-    fn window_add() -> SubscriptionEvent {
-        SubscriptionEvent::WindowAdd
-    }
-
-    fn window_remove() -> SubscriptionEvent {
-        SubscriptionEvent::WindowRemove
-    }
-
     fn init_without_filters(self, buffer: &mut [u8]) -> Result<Subscription, EncodeError> {
         self.encode_to(buffer)?;
 
@@ -63,6 +43,7 @@ pub enum Event {
     KeyRelease(ModMask, Keycode),
     WindowAdd(WindowId),
     WindowRemove(WindowId),
+    WindowConfigure(WindowId, Geometry),
 }
 
 impl From<CommonEvent> for Event {
@@ -72,6 +53,9 @@ impl From<CommonEvent> for Event {
             CommonEvent::KeyRelease(key) => Event::KeyRelease(key.modmask, key.keycode),
             CommonEvent::WindowAdd(window) => Event::WindowAdd(window),
             CommonEvent::WindowRemove(window) => Event::WindowRemove(window),
+            CommonEvent::WindowConfigure(window) => {
+                Event::WindowConfigure(window.id, window.geometry)
+            }
         }
     }
 }
