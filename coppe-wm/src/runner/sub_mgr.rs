@@ -1,20 +1,23 @@
 use coppe_common::event::{Subscription, SubscriptionEvent, SubscriptionFilter};
 use log::*;
-use std::{collections::HashMap, sync::mpsc::SyncSender};
+use std::collections::HashMap;
+use x11rb::connection::Connection;
+use x11rb::protocol::xproto::*;
 
 use super::plug_mgr::PluginId;
-use crate::events::{Command, WmEvent};
+use crate::events::WmEvent;
+use crate::x11::X11Info;
 
 #[derive(Debug)]
 pub struct SubscriptionManager {
     subs: HashMap<SubscriptionEvent, HashMap<PluginId, Vec<Vec<SubscriptionFilter>>>>,
-    conn: SyncSender<Command>,
+    x11: X11Info,
 }
 
 impl SubscriptionManager {
-    pub fn new(command_tx: SyncSender<Command>) -> Self {
+    pub fn new(x11: X11Info) -> Self {
         Self {
-            conn: command_tx,
+            x11,
             subs: Default::default(),
         }
     }
@@ -49,7 +52,24 @@ impl SubscriptionManager {
             },
             Entry::Vacant(event_subs) => {
                 info!("Initializing X subscription for {:?}", sub.event);
-                self.conn.send(Command::Subscribe(sub.event)).unwrap();
+                use SubscriptionEvent::*;
+                match sub.event {
+                    KeyPress(key) | KeyRelease(key) => {
+                        self.x11
+                            .conn
+                            .grab_key(
+                                true,
+                                // FIXME: screen_num should not be hardcoded
+                                self.x11.conn.setup().roots[0].root,
+                                key.modmask,
+                                key.keycode,
+                                GrabMode::ASYNC,
+                                GrabMode::ASYNC,
+                            )
+                            .unwrap();
+                    }
+                    ClientAdd | ClientRemove => {}
+                }
                 let mut sub_desc = HashMap::new();
                 sub_desc.insert(id, vec![sub.filters]);
                 event_subs.insert(sub_desc);
@@ -73,9 +93,20 @@ impl SubscriptionManager {
 
             if subs.is_empty() {
                 info!("Uninitializing X subscription for {:?}", unsub.event);
-                self.conn
-                    .send(Command::Unsubscribe(unsub.event.clone()))
-                    .unwrap();
+                use SubscriptionEvent::*;
+                match unsub.event {
+                    KeyPress(key) | KeyRelease(key) => {
+                        self.x11
+                            .conn
+                            .ungrab_key(
+                                key.keycode,
+                                self.x11.conn.setup().roots[self.x11.screen_num].root,
+                                key.modmask,
+                            )
+                            .unwrap();
+                    }
+                    ClientAdd | ClientRemove => {}
+                }
                 self.subs.remove(&unsub.event);
             }
         }

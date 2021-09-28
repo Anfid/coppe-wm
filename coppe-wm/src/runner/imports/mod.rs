@@ -6,19 +6,22 @@ use log::*;
 use parking_lot::{Mutex, RwLock};
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{mpsc::SyncSender, Arc},
+    sync::Arc,
 };
 use wasmer::{imports, Array, Function, ImportObject, LazyInit, Memory, Store, WasmPtr, WasmerEnv};
-use x11rb::protocol::xproto::ConfigureWindowAux;
+use x11rb::errors::{ConnectionError as X11ConnectionError, ReplyError as X11ReplyError};
+
+mod window;
 
 use super::plug_mgr::PluginId;
 use super::sub_mgr::SubscriptionManager;
-use crate::events::{Command, Subscription};
+use crate::events::Subscription;
+use crate::x11::X11Info;
 
 #[derive(WasmerEnv, Clone)]
-struct CmdEnv {
+struct XEnv {
     id: PluginId,
-    conn: SyncSender<Command>,
+    x11: X11Info,
     #[wasmer(export)]
     memory: LazyInit<Memory>,
 }
@@ -42,13 +45,13 @@ struct EventEnv {
 pub(super) fn import_objects(
     plugin_id: PluginId,
     store: &Store,
-    conn: SyncSender<Command>,
+    x11: X11Info,
     subscriptions: Arc<RwLock<SubscriptionManager>>,
     events: Arc<RwLock<HashMap<PluginId, Mutex<VecDeque<Event>>>>>,
 ) -> ImportObject {
-    let cmd_env = CmdEnv {
+    let cmd_env = XEnv {
         id: plugin_id.clone(),
-        conn: conn.clone(),
+        x11: x11.clone(),
         memory: Default::default(),
     };
     let sub_env = SubEnv {
@@ -69,7 +72,12 @@ pub(super) fn import_objects(
             "event_read" => Function::new_native_with_env(store, event_env.clone(), event_read),
             "event_len" => Function::new_native_with_env(store, event_env.clone(), event_len),
             "debug_log" => Function::new_native_with_env(store, cmd_env.clone(), debug_log),
-            "move_window" => Function::new_native_with_env(store, cmd_env.clone(), move_window),
+            "window_move" => Function::new_native_with_env(store, cmd_env.clone(), window::window_move),
+            "window_resize" => Function::new_native_with_env(store, cmd_env.clone(), window::window_resize),
+            "window_move_resize" => Function::new_native_with_env(store, cmd_env.clone(), window::window_move_resize),
+            "window_focus" => Function::new_native_with_env(store, cmd_env.clone(), window::window_focus),
+            "window_get_properties" => Function::new_native_with_env(store, cmd_env.clone(), window::window_get_properties),
+            "window_close" => Function::new_native_with_env(store, cmd_env.clone(), window::window_close),
             "spawn" => Function::new_native_with_env(store, cmd_env.clone(), spawn),
         }
     }
@@ -121,8 +129,7 @@ fn subscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i32
             env.subscriptions.write().subscribe(env.id.clone(), sub);
             Ok(())
         })
-        .err()
-        .unwrap_or(ErrorCode::Ok) as i32
+        .value_or_error_code()
 }
 
 /// Unsubscribe from a specific WM event.
@@ -147,15 +154,13 @@ fn unsubscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i
             env.subscriptions.write().unsubscribe(&env.id, &sub);
             Ok(())
         })
-        .err()
-        .unwrap_or(ErrorCode::Ok) as i32
+        .value_or_error_code()
 }
 
 /// Read the next event. Returns number of read bytes or -1 if plugin id is unknown or writing to buffer is impossible.
 /// If bytes are read to end, event is removed from queue. This will happen even if first bytes were never read.
 fn event_read(env: &EventEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32, read_offset: u32) -> i32 {
-    let res = env
-        .memory_ref()
+    env.memory_ref()
         .ok_or(ErrorCode::UnableToGetMemory)
         .and_then(|memory| {
             let events = env.events.read();
@@ -187,13 +192,9 @@ fn event_read(env: &EventEnv, buf_ptr: WasmPtr<u8, Array>, buf_len: u32, read_of
                 plugin_events.pop_front();
             }
 
-            Ok(read_len)
-        });
-
-    match res {
-        Ok(v) => v as i32,
-        Err(v) => v as i32,
-    }
+            Ok(read_len as u32)
+        })
+        .value_or_error_code()
 }
 
 /// Query the size of next event.
@@ -217,7 +218,7 @@ fn event_len(env: &EventEnv) -> u32 {
 }
 
 /// Print debug message to logs. Returns 0 on success or error code.
-fn debug_log(env: &CmdEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
+fn debug_log(env: &XEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
     env.memory_ref()
         .ok_or(ErrorCode::UnableToGetMemory)
         .and_then(|memory| {
@@ -229,22 +230,10 @@ fn debug_log(env: &CmdEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
             info!("{}: {}", env.id, debug_string);
             Ok(())
         })
-        .err()
-        .unwrap_or(ErrorCode::Ok) as i32
+        .value_or_error_code()
 }
 
-fn move_window(env: &CmdEnv, window_id: u32, x: i32, y: i32) -> i32 {
-    info!("{}: move_window {} to [{}, {}]", env.id, window_id, x, y);
-    let aux = ConfigureWindowAux::default().x(x).y(y);
-
-    env.conn
-        .send(Command::ConfigureWindow(aux))
-        .map_err(|_| ErrorCode::Send)
-        .err()
-        .unwrap_or(ErrorCode::Ok) as i32
-}
-
-fn spawn(env: &CmdEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
+fn spawn(env: &XEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
     env.memory_ref()
         .ok_or(ErrorCode::UnableToGetMemory)
         .and_then(|memory| {
@@ -263,23 +252,66 @@ fn spawn(env: &CmdEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
             std::process::Command::new(&cmd_args[0])
                 .args(&cmd_args[1..])
                 .spawn()
+                .map(|_| {})
                 .map_err(|_| ErrorCode::Execution)
         })
-        .err()
-        .unwrap_or(ErrorCode::Ok) as i32
+        .value_or_error_code()
 }
 
 /// Core API call error codes.
 #[derive(Debug)]
 enum ErrorCode {
-    /// Plugin memory could not be accessed
+    /// Plugin memory could not be accessed. Should never happen if plugin was initialized properly.
     UnableToGetMemory = -128,
-    /// Internal command send error.
-    Send = -127,
+    /// Window with provided id does not exist.
+    Window = -4,
     /// Invalid argument provided.
-    BadArgument = -2,
+    BadArgument = -3,
     /// Command execution error.
-    Execution = -1,
+    Execution = -2,
+    /// No information could be provided about this error.
+    Unknown = -1,
     /// Success.
     Ok = 0,
+}
+
+impl From<X11ReplyError> for ErrorCode {
+    fn from(e: X11ReplyError) -> Self {
+        match e {
+            X11ReplyError::ConnectionError(_) => ErrorCode::Unknown,
+            X11ReplyError::X11Error(e) => match e.error_kind {
+                x11rb::protocol::ErrorKind::Match => ErrorCode::BadArgument,
+                x11rb::protocol::ErrorKind::Window => ErrorCode::Window,
+                _ => ErrorCode::Unknown,
+            },
+        }
+    }
+}
+
+impl From<X11ConnectionError> for ErrorCode {
+    fn from(_: X11ConnectionError) -> Self {
+        ErrorCode::Unknown
+    }
+}
+
+trait ValOrErrCode {
+    fn value_or_error_code(self) -> i32;
+}
+
+impl ValOrErrCode for Result<u32, ErrorCode> {
+    fn value_or_error_code(self) -> i32 {
+        match self {
+            Ok(u32) => u32 as i32,
+            Err(e) => e as i32,
+        }
+    }
+}
+
+impl ValOrErrCode for Result<(), ErrorCode> {
+    fn value_or_error_code(self) -> i32 {
+        match self {
+            Ok(()) => ErrorCode::Ok as i32,
+            Err(e) => e as i32,
+        }
+    }
 }

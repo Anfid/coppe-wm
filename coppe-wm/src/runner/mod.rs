@@ -5,7 +5,8 @@ mod imports;
 mod plug_mgr;
 mod sub_mgr;
 
-use crate::events::{Command, WmEvent};
+use crate::events::WmEvent;
+use crate::x11::X11Info;
 use plug_mgr::PluginManager;
 
 pub struct Runner {
@@ -14,9 +15,9 @@ pub struct Runner {
 }
 
 impl Runner {
-    pub fn new(rx: mpsc::Receiver<WmEvent>, command_tx: mpsc::SyncSender<Command>) -> Self {
+    pub fn new(rx: mpsc::Receiver<WmEvent>, conn: X11Info) -> Self {
         Self {
-            plugins: PluginManager::new(command_tx),
+            plugins: PluginManager::new(conn),
             rx,
         }
     }

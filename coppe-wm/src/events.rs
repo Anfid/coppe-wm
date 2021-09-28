@@ -2,7 +2,7 @@ use coppe_common::{
     event::{Event, SubscriptionEvent},
     key::Key,
 };
-use x11rb::protocol::{xproto::ConfigureWindowAux, Event as XEvent};
+use x11rb::protocol::Event as XEvent;
 
 pub use coppe_common::event::{Subscription, SubscriptionFilter};
 
@@ -28,6 +28,8 @@ impl WmEvent {
             ),
             XEvent::MapRequest(event) => Some(Event::ClientAdd(event.window).into()),
             XEvent::UnmapNotify(event) => Some(Event::ClientRemove(event.window).into()),
+            // TODO
+            XEvent::ConfigureNotify(_event) => None,
             _ => None,
         }
     }
@@ -58,11 +60,4 @@ impl Into<SubscriptionEvent> for &WmEvent {
     fn into(self) -> SubscriptionEvent {
         SubscriptionEvent::from(&self.0)
     }
-}
-
-#[derive(Debug)]
-pub enum Command {
-    Subscribe(SubscriptionEvent),
-    Unsubscribe(SubscriptionEvent),
-    ConfigureWindow(ConfigureWindowAux),
 }

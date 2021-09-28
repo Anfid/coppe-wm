@@ -6,30 +6,31 @@ use std::{
     fmt::{self, Display},
     fs::File,
     io::Read,
-    sync::{mpsc, Arc},
+    sync::Arc,
 };
 use wasmer::{Instance, Module, NativeFunc, Store};
 
 use super::imports;
 use super::sub_mgr::SubscriptionManager;
-use crate::events::{Command, WmEvent};
+use crate::events::WmEvent;
+use crate::x11::X11Info;
 
 pub struct PluginManager {
     store: Store,
     instances: HashMap<PluginId, Instance>,
     events: Arc<RwLock<HashMap<PluginId, Mutex<VecDeque<Event>>>>>,
     subscriptions: Arc<RwLock<SubscriptionManager>>,
-    command_tx: mpsc::SyncSender<Command>,
+    x11: X11Info,
 }
 
 impl PluginManager {
-    pub fn new(command_tx: mpsc::SyncSender<Command>) -> Self {
+    pub fn new(x11: X11Info) -> Self {
         Self {
             store: Default::default(),
             instances: Default::default(),
             events: Default::default(),
-            subscriptions: Arc::new(RwLock::new(SubscriptionManager::new(command_tx.clone()))),
-            command_tx,
+            subscriptions: Arc::new(RwLock::new(SubscriptionManager::new(x11.clone()))),
+            x11,
         }
     }
 }
@@ -92,7 +93,7 @@ impl PluginManager {
             let imports = imports::import_objects(
                 id.clone(),
                 &self.store,
-                self.command_tx.clone(),
+                self.x11.clone(),
                 self.subscriptions.clone(),
                 self.events.clone(),
             );
