@@ -15,16 +15,14 @@ pub struct Runner {
 }
 
 impl Runner {
-    pub fn new(rx: mpsc::Receiver<WmEvent>, conn: X11Info) -> Self {
+    pub fn init(conn: X11Info, rx: mpsc::Receiver<WmEvent>) -> Self {
         Self {
-            plugins: PluginManager::new(conn),
+            plugins: PluginManager::init(conn),
             rx,
         }
     }
 
     pub fn run(&mut self) {
-        self.plugins.init();
-
         while let Ok(event) = self.rx.recv() {
             info!("Dispatching event {:?}", event);
             self.plugins.handle(event)

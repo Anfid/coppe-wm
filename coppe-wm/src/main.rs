@@ -13,9 +13,13 @@ fn main() {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
     let x11 = X11Info::init().unwrap();
 
-    let mut runner = Runner::new(event_rx, x11.clone());
+    let mut wm = WindowManager::init(x11.clone(), event_tx).unwrap_or_else(|e| {
+        println!("Error during wm initialization: {}", e);
+        std::process::exit(1);
+    });
+    let mut runner = Runner::init(x11, event_rx);
+
     std::thread::spawn(move || runner.run());
 
-    let mut wm = WindowManager::init(x11, event_tx).unwrap();
     wm.run().unwrap();
 }
