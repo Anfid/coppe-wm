@@ -1,7 +1,7 @@
 use crate::encoding::{Decode, DecodeError, Encode, EncodeError};
 use core::ops::{BitOr, BitOrAssign};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Key {
     pub modmask: ModMask,
     pub keycode: Keycode,
@@ -16,13 +16,6 @@ impl Key {
 impl From<(ModMask, Keycode)> for Key {
     fn from((modmask, keycode): (ModMask, Keycode)) -> Self {
         Self { modmask, keycode }
-    }
-}
-
-impl core::hash::Hash for Key {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        u16::from(self.modmask).hash(state);
-        u8::from(self.keycode).hash(state);
     }
 }
 
@@ -65,7 +58,7 @@ impl Encode for Key {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModMask(u16);
 
 impl ModMask {
@@ -108,7 +101,7 @@ impl BitOrAssign for ModMask {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Keycode(u8);
 
 #[allow(non_upper_case_globals)]

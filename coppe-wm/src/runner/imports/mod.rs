@@ -51,7 +51,7 @@ pub(super) fn import_objects(
 ) -> ImportObject {
     let cmd_env = XEnv {
         id: plugin_id.clone(),
-        x11: x11.clone(),
+        x11,
         memory: Default::default(),
     };
     let sub_env = SubEnv {
@@ -60,7 +60,7 @@ pub(super) fn import_objects(
         memory: Default::default(),
     };
     let event_env = EventEnv {
-        id: plugin_id.clone(),
+        id: plugin_id,
         events,
         memory: Default::default(),
     };
@@ -68,9 +68,9 @@ pub(super) fn import_objects(
     imports! {
         "env" => {
             "subscribe" => Function::new_native_with_env(store, sub_env.clone(), subscribe),
-            "unsubscribe" => Function::new_native_with_env(store, sub_env.clone(), unsubscribe),
+            "unsubscribe" => Function::new_native_with_env(store, sub_env, unsubscribe),
             "event_read" => Function::new_native_with_env(store, event_env.clone(), event_read),
-            "event_len" => Function::new_native_with_env(store, event_env.clone(), event_len),
+            "event_len" => Function::new_native_with_env(store, event_env, event_len),
             "debug_log" => Function::new_native_with_env(store, cmd_env.clone(), debug_log),
             "window_move" => Function::new_native_with_env(store, cmd_env.clone(), window::window_move),
             "window_resize" => Function::new_native_with_env(store, cmd_env.clone(), window::window_resize),
@@ -78,7 +78,7 @@ pub(super) fn import_objects(
             "window_focus" => Function::new_native_with_env(store, cmd_env.clone(), window::window_focus),
             "window_get_properties" => Function::new_native_with_env(store, cmd_env.clone(), window::window_get_properties),
             "window_close" => Function::new_native_with_env(store, cmd_env.clone(), window::window_close),
-            "spawn" => Function::new_native_with_env(store, cmd_env.clone(), spawn),
+            "spawn" => Function::new_native_with_env(store, cmd_env, spawn),
         }
     }
 }
@@ -123,7 +123,7 @@ fn subscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i32
             let event = event_ptr
                 .deref(memory, 0, event_len)
                 .ok_or(ErrorCode::BadArgument)?;
-            let event: Vec<u8> = event.into_iter().map(|cell| cell.get()).collect();
+            let event: Vec<u8> = event.iter().map(|cell| cell.get()).collect();
             let sub = Subscription::decode(event.as_ref()).map_err(|_| ErrorCode::BadArgument)?;
             info!("{}: subscribe to {:?}", env.id, sub);
             env.subscriptions.write().subscribe(env.id.clone(), sub);
@@ -148,7 +148,7 @@ fn unsubscribe(env: &SubEnv, event_ptr: WasmPtr<u8, Array>, event_len: u32) -> i
             let event = event_ptr
                 .deref(memory, 0, event_len)
                 .ok_or(ErrorCode::BadArgument)?;
-            let event: Vec<u8> = event.into_iter().map(|cell| cell.get()).collect();
+            let event: Vec<u8> = event.iter().map(|cell| cell.get()).collect();
             let sub = Subscription::decode(event.as_ref()).map_err(|_| ErrorCode::BadArgument)?;
             info!("{}: unsubscribe from {:?}", env.id, sub);
             env.subscriptions.write().unsubscribe(&env.id, &sub);
@@ -244,7 +244,7 @@ fn spawn(env: &XEnv, cmd_ptr: WasmPtr<u8, Array>, cmd_len: u32) -> i32 {
             shlex::split(&cmd_string).ok_or(ErrorCode::BadArgument)
         })
         .and_then(|cmd_args| {
-            (cmd_args.len() > 0)
+            (!cmd_args.is_empty())
                 .then(|| cmd_args)
                 .ok_or(ErrorCode::BadArgument)
         })

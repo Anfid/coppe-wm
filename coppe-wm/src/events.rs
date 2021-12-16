@@ -49,7 +49,7 @@ impl WmEvent {
         self.0.id()
     }
 
-    pub fn matches(&self, _filters: &Vec<SubscriptionFilter>) -> bool {
+    pub fn matches(&self, _filters: &[SubscriptionFilter]) -> bool {
         // No filters implemented yet
         true
     }
@@ -67,8 +67,8 @@ impl From<WmEvent> for Event {
     }
 }
 
-impl Into<SubscriptionEvent> for &WmEvent {
-    fn into(self) -> SubscriptionEvent {
-        SubscriptionEvent::from(&self.0)
+impl From<&WmEvent> for SubscriptionEvent {
+    fn from(event: &WmEvent) -> Self {
+        SubscriptionEvent::from(&event.0)
     }
 }

@@ -150,7 +150,7 @@ impl Decode for SubscriptionEvent {
     fn decode(buffer: &[u8]) -> Result<Self, Self::Error> {
         use SubscriptionEvent::*;
 
-        let id = u32::decode(&buffer)?;
+        let id = u32::decode(buffer)?;
 
         match id {
             id::KEY_PRESS => Key::decode(&buffer[4..]).map(KeyPress),
