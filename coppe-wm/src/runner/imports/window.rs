@@ -4,9 +4,9 @@ use x11rb::protocol::xproto::*;
 
 use super::{ErrorCode, ValOrErrCode, XEnv};
 
-pub(super) fn window_move(env: &XEnv, window_id: u32, x: i32, y: i32) -> i32 {
+pub(super) fn window_move(env: &XEnv, window_id: u32, x: i16, y: i16) -> i32 {
     info!("{}: window_move {} to [{}, {}]", env.id, window_id, x, y);
-    let aux = ConfigureWindowAux::default().x(x).y(y);
+    let aux = ConfigureWindowAux::default().x(x as i32).y(y as i32);
 
     env.x11
         .conn
@@ -16,12 +16,14 @@ pub(super) fn window_move(env: &XEnv, window_id: u32, x: i32, y: i32) -> i32 {
         .value_or_error_code()
 }
 
-pub(super) fn window_resize(env: &XEnv, window_id: u32, width: u32, height: u32) -> i32 {
+pub(super) fn window_resize(env: &XEnv, window_id: u32, width: u16, height: u16) -> i32 {
     info!(
         "{}: window_resize {} to [{}, {}]",
         env.id, window_id, width, height
     );
-    let aux = ConfigureWindowAux::default().width(width).height(height);
+    let aux = ConfigureWindowAux::default()
+        .width(width as u32)
+        .height(height as u32);
 
     env.x11
         .conn
@@ -34,20 +36,20 @@ pub(super) fn window_resize(env: &XEnv, window_id: u32, width: u32, height: u32)
 pub(super) fn window_move_resize(
     env: &XEnv,
     window_id: u32,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
+    x: i16,
+    y: i16,
+    width: u16,
+    height: u16,
 ) -> i32 {
     info!(
         "{}: window_move_resize {} to {{x:{},y:{},width:{},height:{}}}",
         env.id, window_id, x, y, width, height
     );
     let aux = ConfigureWindowAux::default()
-        .x(x)
-        .y(y)
-        .width(width)
-        .height(height);
+        .x(x as i32)
+        .y(y as i32)
+        .width(width as u32)
+        .height(height as u32);
 
     env.x11
         .conn

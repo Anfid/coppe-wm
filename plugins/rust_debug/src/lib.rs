@@ -47,10 +47,10 @@ pub extern "C" fn handle() {
         match event {
             Event::KeyPress(ModMask::M4, Keycode::Z) => {
                 log("Win+Z pressed");
+                list_windows()
             }
             Event::KeyRelease(ModMask::M4, Keycode::Z) => {
                 log("Win+Z released");
-                list_windows()
             }
             Event::WindowAdd(id) => {
                 log(format!("New window: {}", id));

@@ -8,7 +8,9 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
 };
-use wasmer::{imports, Array, Function, ImportObject, LazyInit, Memory, Store, WasmPtr, WasmerEnv};
+use wasmer::{
+    imports, Array, Function, ImportObject, LazyInit, Memory, Store, ValueType, WasmPtr, WasmerEnv,
+};
 use x11rb::errors::{ConnectionError as X11ConnectionError, ReplyError as X11ReplyError};
 
 mod window;
@@ -84,15 +86,18 @@ pub(super) fn import_objects(
 }
 
 /// Read byte slice to WASM buffer helper
-unsafe fn write_to_ptr(
-    data: &[u8],
+///
+/// SAFETY:
+/// - len must match allocated buffer size
+unsafe fn write_to_ptr<T: ValueType>(
+    data: &[T],
     memory: &Memory,
-    buf_ptr: WasmPtr<u8, Array>,
+    buf_ptr: WasmPtr<T, Array>,
     buf_len: u32,
     read_offset: u32,
 ) -> Result<usize, ErrorCode> {
     let read_len = std::cmp::min(buf_len as i32, data.len() as i32 - read_offset as i32);
-    // Return error if offset is greater than event length
+    // Return error if offset is greater than data length
     if read_len < 0 {
         return Err(ErrorCode::BadArgument);
     }

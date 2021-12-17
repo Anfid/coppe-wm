@@ -1,3 +1,5 @@
+use coppe_common::window::WindowId;
+
 pub(crate) mod raw {
     extern "C" {
         // Events
@@ -7,18 +9,18 @@ pub(crate) mod raw {
         pub fn event_len() -> usize;
 
         // Window management
-        pub fn window_move(id: i32, x: i32, y: i32) -> i32;
-        pub fn window_resize(id: i32, width: u32, height: u32) -> i32;
-        pub fn window_move_resize(id: i32, x: i32, y: i32, width: u32, height: u32) -> i32;
-        pub fn window_focus(id: i32) -> i32;
+        pub fn window_move(id: u32, x: i16, y: i16) -> i32;
+        pub fn window_resize(id: u32, width: u16, height: u16) -> i32;
+        pub fn window_move_resize(id: u32, x: i16, y: i16, width: u16, height: u16) -> i32;
+        pub fn window_focus(id: u32) -> i32;
         pub fn window_get_properties(
-            id: i32,
-            x: *mut i32,
-            y: *mut i32,
-            width: *mut u32,
-            height: *mut u32,
+            id: u32,
+            x: *mut i16,
+            y: *mut i16,
+            width: *mut u16,
+            height: *mut u16,
         ) -> i32;
-        pub fn window_close(id: i32) -> i32;
+        pub fn window_close(id: u32) -> i32;
 
         // Commands
         pub fn spawn(cmd_ptr: *const u8, cmd_len: usize) -> i32;
@@ -52,31 +54,37 @@ pub fn spawn(command: &str) -> i32 {
     unsafe { raw::spawn(command.as_ptr() as *const u8, command.len()) }
 }
 
-pub fn window_move(id: i32, x: i32, y: i32) {
+pub fn window_move(id: WindowId, x: i16, y: i16) {
     unsafe {
         raw::window_move(id, x, y);
     }
 }
 
-pub fn window_resize(id: i32, width: u32, height: u32) {
+pub fn window_resize(id: WindowId, width: u16, height: u16) {
     unsafe {
         raw::window_resize(id, width, height);
     }
 }
 
-pub fn window_move_resize(id: i32, x: i32, y: i32, width: u32, height: u32) {
+pub fn window_move_resize(id: WindowId, x: i16, y: i16, width: u16, height: u16) {
     unsafe {
         raw::window_move_resize(id, x, y, width, height);
     }
 }
 
-pub fn window_focus(id: i32) {
+pub fn window_focus(id: WindowId) {
     unsafe {
         raw::window_focus(id);
     }
 }
 
-pub fn window_get_properties(id: i32, x: &mut i32, y: &mut i32, width: &mut u32, height: &mut u32) {
+pub fn window_get_properties(
+    id: WindowId,
+    x: &mut i16,
+    y: &mut i16,
+    width: &mut u16,
+    height: &mut u16,
+) {
     unsafe {
         raw::window_get_properties(
             id,
@@ -88,7 +96,7 @@ pub fn window_get_properties(id: i32, x: &mut i32, y: &mut i32, width: &mut u32,
     }
 }
 
-pub fn window_close(id: i32) {
+pub fn window_close(id: WindowId) {
     unsafe {
         raw::window_close(id);
     }
